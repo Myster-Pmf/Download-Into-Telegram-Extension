@@ -1,0 +1,1164 @@
+// VideoGrab - popup.js (Manifest V2)
+
+// --- Constants & Global State ---
+const DEFAULT_SETTINGS = {
+  backendUrl: 'http://localhost:3000',
+  apiKey: 'my_secure_shared_secret_api_key',
+  tgTarget: '@mygroup',
+  quality: 'best',
+  autoMatch: 'true',
+  defaultUa: navigator.userAgent,
+  ytdlpFlags: '--embed-subs'
+};
+
+let activeSettings = { ...DEFAULT_SETTINGS };
+let detectedVideosList = [];
+let siteProfiles = [];
+let globalCookiesText = '';
+let globalUserAgent = navigator.userAgent;
+
+// Active download polling timers (jobId => intervalId)
+const activePolls = new Map();
+
+// --- Glob to Regex Converter ---
+function globToRegex(glob) {
+  // Escape regex specials except '*'
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  // Convert '*' to '.*'
+  const regexStr = '^' + escaped.replace(/\*/g, '.*') + '$';
+  return new RegExp(regexStr, 'i');
+}
+
+// --- Domain Matcher ---
+function matchProfileForUrl(videoUrl) {
+  if (activeSettings.autoMatch === 'false') return null;
+
+  try {
+    const parsedUrl = new URL(videoUrl);
+    const hostname = parsedUrl.hostname;
+
+    for (const profile of siteProfiles) {
+      if (!profile.domainPattern) continue;
+      const regex = globToRegex(profile.domainPattern);
+      if (regex.test(hostname)) {
+        return profile;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to match URL domain:', e);
+  }
+  return null;
+}
+
+// --- DOM elements ---
+const elements = {
+  backendStatus: document.getElementById('backend-status'),
+  videosList: document.getElementById('videos-list'),
+  customProfilesList: document.getElementById('custom-profiles-list'),
+  historyList: document.getElementById('history-list'),
+  
+  // Settings Form
+  settingsForm: document.getElementById('settings-form'),
+  settBackendUrl: document.getElementById('sett-backend-url'),
+  settApiKey: document.getElementById('sett-api-key'),
+  settTgTarget: document.getElementById('sett-tg-target'),
+  settTgTargetCustom: document.getElementById('sett-tg-target-custom'),
+  refreshChatsBtn: document.getElementById('refresh-chats-btn'),
+  settQuality: document.getElementById('sett-quality'),
+  settAutoMatch: document.getElementById('sett-auto-match'),
+  settDefaultUa: document.getElementById('sett-default-ua'),
+  settYtdlpFlags: document.getElementById('sett-ytdlp-flags'),
+
+  // Global Profile elements
+  globalCookies: document.getElementById('global-cookies'),
+  globalCookieFile: document.getElementById('global-cookie-file'),
+  clearGlobalCookies: document.getElementById('clear-global-cookies'),
+  globalUa: document.getElementById('global-ua'),
+  saveGlobalProfileBtn: document.getElementById('save-global-profile-btn'),
+
+  // Telegram Wizard steps
+  tgStatusCard: document.getElementById('tg-status-card'),
+  tgStatusBadge: document.getElementById('tg-status-badge'),
+  tgStatusText: document.getElementById('tg-status-text'),
+  
+  authStepPhone: document.getElementById('auth-step-phone'),
+  authStepOtp: document.getElementById('auth-step-otp'),
+  authStep2fa: document.getElementById('auth-step-2fa'),
+  authStepLogged: document.getElementById('auth-step-logged'),
+  
+  tgPhone: document.getElementById('tg-phone'),
+  tgOtp: document.getElementById('tg-otp'),
+  tgPassword: document.getElementById('tg-password'),
+  tg2faHint: document.getElementById('tg-2fa-hint'),
+  
+  // Telegram action buttons
+  tgSendOtpBtn: document.getElementById('tg-send-otp-btn'),
+  tgVerifyOtpBtn: document.getElementById('tg-verify-otp-btn'),
+  tgVerify2faBtn: document.getElementById('tg-verify-2fa-btn'),
+  tgLogoutBtn: document.getElementById('tg-logout-btn'),
+  
+  tgBackPhoneBtn: document.getElementById('tg-back-phone-btn'),
+  tgBackOtpBtn: document.getElementById('tg-back-otp-btn'),
+  
+  // Custom Profile Modal
+  profileModal: document.getElementById('profile-modal'),
+  profileForm: document.getElementById('profile-form'),
+  profileId: document.getElementById('profile-id'),
+  profName: document.getElementById('prof-name'),
+  profPattern: document.getElementById('prof-pattern'),
+  profCookies: document.getElementById('prof-cookies'),
+  profCookieFile: document.getElementById('prof-cookie-file'),
+  profOrigin: document.getElementById('prof-origin'),
+  profReferer: document.getElementById('prof-referer'),
+  profUa: document.getElementById('prof-ua'),
+  closeModalBtn: document.getElementById('close-modal-btn'),
+  newProfileBtn: document.getElementById('new-profile-btn'),
+  
+  clearVideosBtn: document.getElementById('clear-videos-btn'),
+  refreshHistoryBtn: document.getElementById('refresh-history-btn')
+};
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', async () => {
+  setupTabs();
+  await loadSettings();
+  await loadSiteProfiles();
+  await refreshDetectedVideos();
+  await pingBackend();
+  await checkTelegramStatus();
+
+  // Listen for storage updates to refresh video list in real-time
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.detectedVideos) {
+      detectedVideosList = changes.detectedVideos.newValue || [];
+      renderVideos();
+    }
+  });
+
+  // Settings form submission
+  elements.settingsForm.addEventListener('submit', saveSettings);
+
+  // Settings form target dropdown change toggle
+  elements.settTgTarget.addEventListener('change', () => {
+    if (elements.settTgTarget.value === 'custom') {
+      elements.settTgTargetCustom.style.display = 'block';
+    } else {
+      elements.settTgTargetCustom.style.display = 'none';
+    }
+  });
+
+  // Settings form refresh chats click
+  elements.refreshChatsBtn.addEventListener('click', async () => {
+    elements.refreshChatsBtn.disabled = true;
+    elements.refreshChatsBtn.innerText = '⏳';
+    await fetchTelegramChats(activeSettings.tgTarget);
+    elements.refreshChatsBtn.disabled = false;
+    elements.refreshChatsBtn.innerText = '🔄';
+  });
+
+  // Clear videos
+  elements.clearVideosBtn.addEventListener('click', () => {
+    chrome.storage.local.set({ detectedVideos: [] }, () => {
+      detectedVideosList = [];
+      renderVideos();
+    });
+  });
+
+  // Refresh history
+  elements.refreshHistoryBtn.addEventListener('click', fetchHistory);
+
+  // Setup profile modals
+  elements.newProfileBtn.addEventListener('click', () => openProfileModal());
+  elements.closeModalBtn.addEventListener('click', closeProfileModal);
+  elements.profileForm.addEventListener('submit', saveCustomProfile);
+
+  // Cookie files readers
+  setupCookieFileReaders();
+  
+  // Save Global Profile
+  elements.saveGlobalProfileBtn.addEventListener('click', saveGlobalProfile);
+  elements.clearGlobalCookies.addEventListener('click', () => {
+    elements.globalCookies.value = '';
+  });
+
+  // Telegram auth listeners
+  setupTelegramWizardListeners();
+  
+  // History tab click auto-fetch
+  document.querySelector('[data-tab="tab-history"]').addEventListener('click', fetchHistory);
+});
+
+// --- Tab Setup ---
+function setupTabs() {
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Remove active from buttons and contents
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+
+      btn.classList.add('active');
+      const targetPane = document.getElementById(btn.getAttribute('data-tab'));
+      targetPane.classList.add('active');
+    });
+  });
+
+  // Wire filters inside Detected Videos
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderVideos(btn.getAttribute('data-filter'));
+    });
+  });
+}
+
+// --- Settings Operations ---
+async function loadSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(DEFAULT_SETTINGS, async (items) => {
+      activeSettings = items;
+      
+      elements.settBackendUrl.value = items.backendUrl;
+      elements.settApiKey.value = items.apiKey;
+      elements.settQuality.value = items.quality;
+      elements.settAutoMatch.value = items.autoMatch;
+      elements.settDefaultUa.value = items.defaultUa;
+      elements.settYtdlpFlags.value = items.ytdlpFlags;
+      
+      await fetchTelegramChats(items.tgTarget);
+      
+      resolve();
+    });
+  });
+}
+
+function saveSettings(e) {
+  if (e) e.preventDefault();
+  
+  let target = elements.settTgTarget.value;
+  if (target === 'custom') {
+    target = elements.settTgTargetCustom.value.trim();
+  }
+  
+  const newSettings = {
+    backendUrl: elements.settBackendUrl.value.trim().replace(/\/$/, ''), // Remove trailing slash
+    apiKey: elements.settApiKey.value.trim(),
+    tgTarget: target,
+    quality: elements.settQuality.value,
+    autoMatch: elements.settAutoMatch.value,
+    defaultUa: elements.settDefaultUa.value.trim(),
+    ytdlpFlags: elements.settYtdlpFlags.value.trim()
+  };
+
+  chrome.storage.sync.set(newSettings, async () => {
+    activeSettings = newSettings;
+    alert('Settings saved successfully!');
+    pingBackend(); // Re-ping new backend
+    await fetchTelegramChats(target); // Refresh chats list
+  });
+}
+
+async function fetchTelegramChats(savedTarget = null) {
+  const select = elements.settTgTarget;
+  const customInput = elements.settTgTargetCustom;
+  
+  select.innerHTML = '<option value="">Loading chats...</option>';
+  customInput.style.display = 'none';
+
+  try {
+    const response = await fetch(`${activeSettings.backendUrl}/telegram/chats`, {
+      headers: {
+        'X-API-Key': activeSettings.apiKey
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Backend unauthorized or offline');
+    }
+
+    const chats = await response.json();
+    select.innerHTML = '';
+    
+    // Custom option first
+    const customOpt = document.createElement('option');
+    customOpt.value = 'custom';
+    customOpt.innerText = '-- Custom Username or ID --';
+    select.appendChild(customOpt);
+
+    let matched = false;
+    chats.forEach(chat => {
+      const opt = document.createElement('option');
+      const val = chat.username || chat.id;
+      opt.value = val;
+      opt.innerText = `${chat.title} (${chat.type}${chat.username ? ` - ${chat.username}` : ''})`;
+      select.appendChild(opt);
+
+      if (savedTarget && (savedTarget === chat.id || savedTarget === chat.username)) {
+        opt.selected = true;
+        matched = true;
+      }
+    });
+
+    if (savedTarget && !matched) {
+      select.value = 'custom';
+      customInput.style.display = 'block';
+      customInput.value = savedTarget;
+    } else if (!savedTarget && chats.length > 0) {
+      select.selectedIndex = 1; // Default to first available chat
+    }
+
+  } catch (e) {
+    console.error('[Settings] Dialogs fetch failed:', e);
+    select.innerHTML = '<option value="custom">-- Custom Username/ID (Not Logged In) --</option>';
+    select.value = 'custom';
+    customInput.style.display = 'block';
+    if (savedTarget) {
+      customInput.value = savedTarget;
+    }
+  }
+}
+
+// --- Site Profiles Operations ---
+async function loadSiteProfiles() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({
+      siteProfiles: [],
+      globalCookiesText: '',
+      globalUserAgent: navigator.userAgent
+    }, (items) => {
+      siteProfiles = items.siteProfiles;
+      globalCookiesText = items.globalCookiesText;
+      globalUserAgent = items.globalUserAgent;
+
+      elements.globalCookies.value = globalCookiesText;
+      elements.globalUa.value = globalUserAgent;
+
+      renderProfilesList();
+      resolve();
+    });
+  });
+}
+
+function saveGlobalProfile() {
+  const cookies = elements.globalCookies.value.trim();
+  const ua = elements.globalUa.value.trim();
+
+  chrome.storage.local.set({
+    globalCookiesText: cookies,
+    globalUserAgent: ua
+  }, () => {
+    globalCookiesText = cookies;
+    globalUserAgent = ua;
+    alert('Global Fallback profile updated!');
+    renderVideos(); // Re-render videos indicators
+  });
+}
+
+function renderProfilesList() {
+  elements.customProfilesList.innerHTML = '';
+  
+  if (siteProfiles.length === 0) {
+    elements.customProfilesList.innerHTML = `
+      <div class="empty-state" style="padding: 20px; border-style: solid;">
+        <p>No site-specific profiles configured. Add a profile below to target specific domains with custom cookies/headers.</p>
+      </div>
+    `;
+    return;
+  }
+
+  siteProfiles.forEach((profile) => {
+    const card = document.createElement('div');
+    card.className = 'profile-card';
+    
+    // Cookie string snippet size computation
+    const cookieSize = profile.cookiesText ? Math.round(profile.cookiesText.length / 1024) : 0;
+    
+    card.innerHTML = `
+      <div class="profile-card-header">
+        <span class="profile-name">${profile.name}</span>
+        <div class="profile-card-actions">
+          <button class="btn-link edit-prof-btn" data-id="${profile.id}">Edit</button>
+          <button class="btn-link btn-danger-link delete-prof-btn" data-id="${profile.id}">Delete</button>
+        </div>
+      </div>
+      <div class="profile-card-body" style="font-size: 12px; line-height: 1.6;">
+        <div><strong>Pattern:</strong> <code>${profile.domainPattern}</code></div>
+        <div><strong>Cookies:</strong> ${cookieSize > 0 ? `🍪 Imported (${cookieSize} KB)` : '❌ None'}</div>
+        ${profile.defaultOrigin ? `<div><strong>Origin:</strong> <code>${profile.defaultOrigin}</code></div>` : ''}
+        ${profile.defaultReferer ? `<div><strong>Referer:</strong> <code>${profile.defaultReferer}</code></div>` : ''}
+        ${profile.defaultUserAgent ? `<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; max-width: 450px;"><strong>UA:</strong> <small>${profile.defaultUserAgent}</small></div>` : ''}
+      </div>
+    `;
+
+    // Wire actions
+    card.querySelector('.edit-prof-btn').addEventListener('click', () => openProfileModal(profile.id));
+    card.querySelector('.delete-prof-btn').addEventListener('click', () => deleteProfile(profile.id));
+    
+    elements.customProfilesList.appendChild(card);
+  });
+}
+
+function openProfileModal(id = null) {
+  elements.profileForm.reset();
+  
+  if (id) {
+    // Edit mode
+    const prof = siteProfiles.find(p => p.id === id);
+    if (prof) {
+      elements.modalTitle.innerText = 'Edit Site Profile';
+      elements.profileId.value = prof.id;
+      elements.profName.value = prof.name;
+      elements.profPattern.value = prof.domainPattern;
+      elements.profCookies.value = prof.cookiesText || '';
+      elements.profOrigin.value = prof.defaultOrigin || '';
+      elements.profReferer.value = prof.defaultReferer || '';
+      elements.profUa.value = prof.defaultUserAgent || '';
+    }
+  } else {
+    // New mode
+    elements.modalTitle.innerText = 'New Site Profile';
+    elements.profileId.value = '';
+  }
+  
+  elements.profileModal.classList.add('active');
+}
+
+function closeProfileModal() {
+  elements.profileModal.classList.remove('active');
+}
+
+function saveCustomProfile(e) {
+  e.preventDefault();
+  
+  const id = elements.profileId.value;
+  const name = elements.profName.value.trim();
+  const pattern = elements.profPattern.value.trim();
+  const cookies = elements.profCookies.value.trim();
+  const origin = elements.profOrigin.value.trim();
+  const referer = elements.profReferer.value.trim();
+  const ua = elements.profUa.value.trim();
+
+  const newProfile = {
+    id: id || 'prof_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+    name,
+    domainPattern: pattern,
+    cookiesText: cookies,
+    defaultOrigin: origin,
+    defaultReferer: referer,
+    defaultUserAgent: ua
+  };
+
+  if (id) {
+    // Update
+    const idx = siteProfiles.findIndex(p => p.id === id);
+    if (idx !== -1) siteProfiles[idx] = newProfile;
+  } else {
+    // Insert
+    siteProfiles.push(newProfile);
+  }
+
+  chrome.storage.local.set({ siteProfiles }, () => {
+    closeProfileModal();
+    renderProfilesList();
+    renderVideos(); // Refresh matching cookie labels
+  });
+}
+
+function deleteProfile(id) {
+  if (!confirm('Are you sure you want to delete this profile?')) return;
+  
+  siteProfiles = siteProfiles.filter(p => p.id !== id);
+  chrome.storage.local.set({ siteProfiles }, () => {
+    renderProfilesList();
+    renderVideos();
+  });
+}
+
+// Netscape cookies import helper
+function setupCookieFileReaders() {
+  const handleFile = (fileInput, textareaElement) => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      textareaElement.value = e.target.result;
+    };
+    reader.readAsText(file);
+  };
+
+  elements.globalCookieFile.addEventListener('change', () => {
+    handleFile(elements.globalCookieFile, elements.globalCookies);
+  });
+
+  elements.profCookieFile.addEventListener('change', () => {
+    handleFile(elements.profCookieFile, elements.profCookies);
+  });
+}
+
+// --- Detected Videos (Tab 1) ---
+async function refreshDetectedVideos() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ detectedVideos: [] }, (result) => {
+      detectedVideosList = result.detectedVideos;
+      renderVideos();
+      resolve();
+    });
+  });
+}
+
+function renderVideos(filterType = 'all') {
+  elements.videosList.innerHTML = '';
+  
+  const filtered = detectedVideosList.filter(vid => {
+    if (filterType === 'all') return true;
+    return vid.type.toUpperCase() === filterType.toUpperCase();
+  });
+
+  if (filtered.length === 0) {
+    elements.videosList.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🎬</div>
+        <h3>No streams captured</h3>
+        <p>No matches for filter "${filterType}".</p>
+      </div>
+    `;
+    return;
+  }
+
+  filtered.forEach((video) => {
+    const card = document.createElement('div');
+    card.className = 'video-card';
+    card.id = `card-${video.id}`;
+
+    // Auto-match cookie profiles
+    const matchedProfile = matchProfileForUrl(video.url);
+    const profileLabel = matchedProfile 
+      ? `🍪 Matched Profile: ${matchedProfile.name} (${matchedProfile.domainPattern})` 
+      : `🌐 Global fallback cookies`;
+
+    const profileClass = matchedProfile ? '' : 'global';
+
+    // Intercepted headers fallback
+    const referer = video.headers.referer || '';
+    const origin = video.headers.origin || '';
+    const userAgent = video.headers.userAgent || '';
+
+    card.innerHTML = `
+      <div class="card-top">
+        <span class="video-badge badge-${video.type.toLowerCase()}">${video.type}</span>
+        <span class="video-url-title" title="${video.url}">${video.url}</span>
+        <div class="card-actions-top">
+          <button class="btn-link copy-url-btn">Copy URL</button>
+        </div>
+      </div>
+
+      <div class="cookie-match-indicator ${profileClass}">
+        ${profileLabel}
+      </div>
+
+      <div class="form-group">
+        <label>Output Filename (.mp4 / .mkv auto-resolved)</label>
+        <input type="text" class="filename-input" value="${video.filename || 'video'}">
+      </div>
+
+      <!-- Expandable Headers Section -->
+      <div class="expandable-section">
+        <button type="button" class="expand-toggle">
+          <span>▼ Override Headers (Expand to customize)</span>
+          <span class="expand-icon">▾</span>
+        </button>
+        <div class="expand-content">
+          <div class="form-group">
+            <label>Origin Override</label>
+            <input type="text" class="header-origin" value="${origin}" placeholder="https://domain.com">
+          </div>
+          <div class="form-group">
+            <label>Referer Override</label>
+            <input type="text" class="header-referer" value="${referer}" placeholder="https://domain.com/page">
+          </div>
+          <div class="form-group">
+            <label>User-Agent Override</label>
+            <input type="text" class="header-ua" value="${userAgent}" placeholder="Custom User-Agent">
+          </div>
+        </div>
+      </div>
+
+      <!-- Queue/Progress tracker -->
+      <div class="progress-container">
+        <div class="progress-info">
+          <span class="progress-status status-queued">Queued</span>
+          <span class="progress-percent">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill"></div>
+        </div>
+      </div>
+
+      <div class="card-bottom-actions">
+        <button class="btn btn-secondary btn-sm remove-video-btn">Remove</button>
+        <button class="btn btn-primary btn-sm download-video-btn">⬇ Download</button>
+      </div>
+    `;
+
+    // Wire actions
+    card.querySelector('.copy-url-btn').addEventListener('click', () => {
+      navigator.clipboard.writeText(video.url);
+      alert('URL copied to clipboard!');
+    });
+
+    // Expand headers toggle
+    const expSec = card.querySelector('.expandable-section');
+    const expTog = card.querySelector('.expand-toggle');
+    expTog.addEventListener('click', () => {
+      expSec.classList.toggle('active');
+    });
+
+    // Remove video
+    card.querySelector('.remove-video-btn').addEventListener('click', () => {
+      removeVideoFromStorage(video.id);
+    });
+
+    // Download click orchestration
+    card.querySelector('.download-video-btn').addEventListener('click', (e) => {
+      triggerDownload(video, card, matchedProfile, e.target);
+    });
+
+    elements.videosList.appendChild(card);
+  });
+}
+
+function removeVideoFromStorage(id) {
+  chrome.storage.local.get({ detectedVideos: [] }, (res) => {
+    const updated = res.detectedVideos.filter(v => v.id !== id);
+    chrome.storage.local.set({ detectedVideos: updated }, () => {
+      detectedVideosList = updated;
+      renderVideos();
+    });
+  });
+}
+
+// --- Download Executor & Poller ---
+async function triggerDownload(video, cardElement, matchedProfile, downloadButton) {
+  const filename = cardElement.querySelector('.filename-input').value.trim();
+  const origin = cardElement.querySelector('.header-origin').value.trim();
+  const referer = cardElement.querySelector('.header-referer').value.trim();
+  const userAgent = cardElement.querySelector('.header-ua').value.trim();
+
+  // Resolve headers hierarchy: override card -> matched profile -> raw headers -> default settings
+  const finalOrigin = origin || (matchedProfile && matchedProfile.defaultOrigin) || video.headers.origin || '';
+  const finalReferer = referer || (matchedProfile && matchedProfile.defaultReferer) || video.headers.referer || '';
+  const finalUA = userAgent || (matchedProfile && matchedProfile.defaultUserAgent) || video.headers.userAgent || activeSettings.defaultUa;
+
+  // Resolve cookies: matched profile -> global fallback -> empty
+  const finalCookies = matchedProfile ? (matchedProfile.cookiesText || '') : (globalCookiesText || '');
+
+  // Disable UI components in the card
+  downloadButton.disabled = true;
+  cardElement.querySelector('.filename-input').disabled = true;
+  cardElement.querySelector('.remove-video-btn').disabled = true;
+  
+  // Show progress tracker
+  const progContainer = cardElement.querySelector('.progress-container');
+  progContainer.style.display = 'block';
+
+  const updateProgressUi = (status, percent, errorMsg = '') => {
+    const statusLabel = cardElement.querySelector('.progress-status');
+    const percentLabel = cardElement.querySelector('.progress-percent');
+    const fill = cardElement.querySelector('.progress-bar-fill');
+
+    statusLabel.innerText = status;
+    statusLabel.className = `progress-status status-${status.toLowerCase()}`;
+    percentLabel.innerText = `${percent}%`;
+    fill.style.width = `${percent}%`;
+
+    if (status === 'error') {
+      percentLabel.innerText = 'Error';
+      // Create or update error message node
+      let errNode = cardElement.querySelector('.card-error-text');
+      if (!errNode) {
+        errNode = document.createElement('div');
+        errNode.className = 'card-error-text';
+        errNode.style.color = 'var(--status-red)';
+        errNode.style.fontSize = '11px';
+        errNode.style.marginTop = '6px';
+        cardElement.appendChild(errNode);
+      }
+      errNode.innerText = errorMsg;
+      
+      // Re-enable download button
+      downloadButton.disabled = false;
+      downloadButton.innerText = 'Retry Download';
+    }
+  };
+
+  updateProgressUi('Queued', 0);
+
+  try {
+    const response = await fetch(`${activeSettings.backendUrl}/download`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': activeSettings.apiKey
+      },
+      body: JSON.stringify({
+        url: video.url,
+        outputFilename: filename,
+        referer: finalReferer,
+        origin: finalOrigin,
+        userAgent: finalUA,
+        cookiesContent: finalCookies,
+        target: activeSettings.tgTarget,
+        quality: activeSettings.quality,
+        extraFlags: activeSettings.ytdlpFlags,
+        pageUrl: video.pageUrl
+      })
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok || data.error) {
+      updateProgressUi('Error', 0, data.error || 'Failed to trigger download API.');
+      return;
+    }
+
+    if (data.warning) {
+      console.warn('Backend warning:', data.warning);
+    }
+
+    // Start polling status
+    pollJobStatus(data.jobId, updateProgressUi);
+
+  } catch (err) {
+    console.error('Download trigger request failed:', err);
+    updateProgressUi('Error', 0, 'Could not connect to the backend server.');
+  }
+}
+
+function pollJobStatus(jobId, updateUiCallback) {
+  if (activePolls.has(jobId)) {
+    clearInterval(activePolls.get(jobId));
+  }
+
+  const interval = setInterval(async () => {
+    try {
+      const response = await fetch(`${activeSettings.backendUrl}/status/${jobId}`, {
+        headers: {
+          'X-API-Key': activeSettings.apiKey
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to query status.');
+      }
+
+      const data = await response.json();
+
+      updateUiCallback(data.status, data.progress || 0, data.error || '');
+
+      if (data.status === 'done' || data.status === 'error') {
+        clearInterval(interval);
+        activePolls.delete(jobId);
+      }
+
+    } catch (err) {
+      console.error(`Status polling failed for job ${jobId}:`, err);
+      // Don't kill polling immediately on transient request errors, but show a status update
+    }
+  }, 2000);
+
+  activePolls.set(jobId, interval);
+}
+
+// --- Ping & Wakeup Service ---
+async function pingBackend() {
+  const badge = elements.backendStatus;
+  const dot = badge.querySelector('.status-dot');
+  const txt = badge.querySelector('.status-text');
+
+  badge.className = 'status-badge status-waking';
+  txt.innerText = 'Waking backend...';
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconds wake up window
+
+  const wakeTimer = setTimeout(() => {
+    // Show wake up status helper if it takes >3 seconds
+    txt.innerText = 'Waking backend (HF Space)...';
+  }, 3000);
+
+  try {
+    const res = await fetch(`${activeSettings.backendUrl}/ping`, {
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    clearTimeout(wakeTimer);
+
+    if (res.ok) {
+      badge.className = 'status-badge status-online';
+      txt.innerText = 'Connected';
+      return true;
+    }
+  } catch (e) {
+    clearTimeout(timeoutId);
+    clearTimeout(wakeTimer);
+  }
+
+  badge.className = 'status-badge status-offline';
+  txt.innerText = 'Offline';
+  return false;
+}
+
+// --- Telegram Authentication Wizard ---
+async function checkTelegramStatus() {
+  try {
+    const res = await fetch(`${activeSettings.backendUrl}/telegram/status`, {
+      headers: { 'X-API-Key': activeSettings.apiKey }
+    });
+    
+    if (!res.ok) return;
+
+    const data = await res.json();
+    updateTelegramUi(data.loggedIn, data.username);
+    if (data.loggedIn) {
+      await fetchTelegramChats(activeSettings.tgTarget);
+    }
+  } catch (e) {
+    console.error('Failed to load Telegram status:', e);
+  }
+}
+
+function updateTelegramUi(loggedIn, username) {
+  const card = elements.tgStatusCard;
+  const badge = elements.tgStatusBadge;
+  const txt = elements.tgStatusText;
+  
+  // Hide all panels
+  elements.authStepPhone.classList.remove('active');
+  elements.authStepOtp.classList.remove('active');
+  elements.authStep2fa.classList.remove('active');
+  elements.authStepLogged.classList.remove('active');
+
+  if (loggedIn) {
+    card.className = 'tg-status-card logged-in';
+    badge.className = 'badge badge-success';
+    badge.innerText = '🟢 Logged in';
+    txt.innerHTML = `Signed into Telegram user account: <strong>@${username}</strong>`;
+    
+    elements.authStepLogged.classList.add('active');
+  } else {
+    card.className = 'tg-status-card logged-out';
+    badge.className = 'badge badge-danger';
+    badge.innerText = '🔴 Not logged in';
+    txt.innerText = 'Your backend is not signed into Telegram. Complete the form below to connect your account.';
+    
+    elements.authStepPhone.classList.add('active');
+  }
+}
+
+let activePhoneCodeHash = null;
+
+function setupTelegramWizardListeners() {
+  // Send OTP
+  elements.tgSendOtpBtn.addEventListener('click', async () => {
+    const phone = elements.tgPhone.value.trim();
+    if (!phone) {
+      alert('Please enter your phone number.');
+      return;
+    }
+
+    elements.tgSendOtpBtn.disabled = true;
+    elements.tgSendOtpBtn.innerText = 'Sending OTP...';
+
+    try {
+      const res = await fetch(`${activeSettings.backendUrl}/telegram/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': activeSettings.apiKey
+        },
+        body: JSON.stringify({ phone })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Failed to send OTP.');
+        elements.tgSendOtpBtn.disabled = false;
+        elements.tgSendOtpBtn.innerText = 'Send OTP Code';
+        return;
+      }
+
+      activePhoneCodeHash = data.phoneCodeHash;
+      
+      // Shift UI to step 2 (OTP code input)
+      elements.authStepPhone.classList.remove('active');
+      elements.authStepOtp.classList.add('active');
+      elements.tgOtp.value = '';
+
+    } catch (e) {
+      alert('Failed to send OTP. Server connection error.');
+    } finally {
+      elements.tgSendOtpBtn.disabled = false;
+      elements.tgSendOtpBtn.innerText = 'Send OTP Code';
+    }
+  });
+
+  // Verify OTP Code
+  elements.tgVerifyOtpBtn.addEventListener('click', async () => {
+    const phone = elements.tgPhone.value.trim();
+    const code = elements.tgOtp.value.trim();
+    if (!code) {
+      alert('Please enter the OTP verification code.');
+      return;
+    }
+
+    elements.tgVerifyOtpBtn.disabled = true;
+    elements.tgVerifyOtpBtn.innerText = 'Verifying Code...';
+
+    try {
+      const res = await fetch(`${activeSettings.backendUrl}/telegram/otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': activeSettings.apiKey
+        },
+        body: JSON.stringify({
+          phone: phone,
+          code: code,
+          phoneCodeHash: activePhoneCodeHash
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Invalid OTP code.');
+        elements.tgVerifyOtpBtn.disabled = false;
+        elements.tgVerifyOtpBtn.innerText = 'Verify Code';
+        return;
+      }
+
+      if (data.status === '2fa_required') {
+        // Shift UI to step 3 (2FA Password)
+        elements.tg2faHint.innerText = `Hint: ${data.hint || 'No hint available'}`;
+        elements.authStepOtp.classList.remove('active');
+        elements.authStep2fa.classList.add('active');
+        elements.tgPassword.value = '';
+      } else {
+        // Success login
+        await checkTelegramStatus();
+      }
+
+    } catch (e) {
+      alert('Verify code request failed.');
+    } finally {
+      elements.tgVerifyOtpBtn.disabled = false;
+      elements.tgVerifyOtpBtn.innerText = 'Verify Code';
+    }
+  });
+
+  // Verify 2FA Password
+  elements.tgVerify2faBtn.addEventListener('click', async () => {
+    const password = elements.tgPassword.value;
+    if (!password) {
+      alert('Please enter your 2FA password.');
+      return;
+    }
+
+    elements.tgVerify2faBtn.disabled = true;
+    elements.tgVerify2faBtn.innerText = 'Verifying Password...';
+
+    try {
+      const res = await fetch(`${activeSettings.backendUrl}/telegram/2fa`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': activeSettings.apiKey
+        },
+        body: JSON.stringify({ password })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Invalid 2FA password.');
+        return;
+      }
+
+      await checkTelegramStatus();
+
+    } catch (e) {
+      alert('2FA verification request failed.');
+    } finally {
+      elements.tgVerify2faBtn.disabled = false;
+      elements.tgVerify2faBtn.innerText = 'Verify Password';
+    }
+  });
+
+  // Log Out
+  elements.tgLogoutBtn.addEventListener('click', async () => {
+    if (!confirm('Log out from Telegram user session on the backend?')) return;
+
+    elements.tgLogoutBtn.disabled = true;
+    elements.tgLogoutBtn.innerText = 'Logging out...';
+
+    try {
+      const res = await fetch(`${activeSettings.backendUrl}/telegram/logout`, {
+        method: 'POST',
+        headers: { 'X-API-Key': activeSettings.apiKey }
+      });
+      
+      if (res.ok) {
+        updateTelegramUi(false, null);
+      }
+    } catch (e) {
+      alert('Logout request failed.');
+    } finally {
+      elements.tgLogoutBtn.disabled = false;
+      elements.tgLogoutBtn.innerText = 'Sign Out of Telegram';
+    }
+  });
+
+  // Back buttons
+  elements.tgBackPhoneBtn.addEventListener('click', () => {
+    elements.authStepOtp.classList.remove('active');
+    elements.authStepPhone.classList.add('active');
+  });
+
+  elements.tgBackOtpBtn.addEventListener('click', () => {
+    elements.authStep2fa.classList.remove('active');
+    elements.authStepOtp.classList.add('active');
+  });
+}
+
+// --- History & Logs (Tab 4) ---
+async function fetchHistory() {
+  elements.historyList.innerHTML = '<div style="text-align:center; padding: 20px; font-size: 13px; color: var(--text-muted);">Fetching download logs...</div>';
+  
+  try {
+    const res = await fetch(`${activeSettings.backendUrl}/jobs?limit=25`, {
+      headers: { 'X-API-Key': activeSettings.apiKey }
+    });
+
+    if (!res.ok) {
+      throw new Error('Server returned non-ok response.');
+    }
+
+    const data = await res.json();
+    renderHistory(data);
+
+  } catch (err) {
+    console.error('Failed to fetch download logs:', err);
+    elements.historyList.innerHTML = `
+      <div class="empty-state" style="border-color: var(--status-red);">
+        <div class="empty-icon" style="color: var(--status-red);">⚠️</div>
+        <h3>Failed to load logs</h3>
+        <p>Could not fetch history from backend. Ensure settings and API keys are correct.</p>
+      </div>
+    `;
+  }
+}
+
+function renderHistory(jobs) {
+  elements.historyList.innerHTML = '';
+
+  if (jobs.length === 0) {
+    elements.historyList.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📜</div>
+        <h3>No download logs</h3>
+        <p>Start downloading videos to build a history stream.</p>
+      </div>
+    `;
+    return;
+  }
+
+  jobs.forEach(job => {
+    const card = document.createElement('div');
+    card.className = 'history-card';
+
+    const cleanDate = new Date(job.createdAt).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const statusClass = `status-${job.status.toLowerCase()}`;
+    const displayName = job.outputName || job.filename || 'Unnamed video';
+
+    card.innerHTML = `
+      <div class="history-title" title="${displayName}">${displayName}</div>
+      <div style="font-size: 10px; color: var(--text-dark); word-break: break-all; margin-top: 2px;">URL: ${job.url}</div>
+      
+      ${job.error ? `<div class="history-error-msg">❌ ${job.error}</div>` : ''}
+
+      <div class="history-meta">
+        <span>${cleanDate}</span>
+        <span class="history-status-badge ${statusClass}">${job.status}</span>
+      </div>
+      
+      ${job.status === 'error' || job.status === 'done' ? `
+        <div class="mt-1" style="display:flex; justify-content: flex-end;">
+          <button class="btn btn-secondary btn-sm retrigger-btn" style="padding: 3px 8px; font-size: 10px;">Re-download</button>
+        </div>
+      ` : ''}
+    `;
+
+    if (job.status === 'error' || job.status === 'done') {
+      card.querySelector('.retrigger-btn').addEventListener('click', () => {
+        retriggerJob(job);
+      });
+    }
+
+    elements.historyList.appendChild(card);
+  });
+}
+
+async function retriggerJob(job) {
+  // Try to find if this URL is already in our detected list
+  let matchingVideo = detectedVideosList.find(v => v.url === job.url);
+  if (!matchingVideo) {
+    // Construct a temporary video item
+    matchingVideo = {
+      id: 'retrigger_' + Date.now(),
+      url: job.url,
+      type: 'MP4',
+      headers: {},
+      pageUrl: job.pageUrl,
+      filename: job.outputName,
+      timestamp: Date.now()
+    };
+  }
+
+  // Switch to videos tab
+  document.querySelector('[data-tab="tab-videos"]').click();
+  
+  // Save/prepend this video to local storage so it renders in Tab 1
+  chrome.storage.local.get({ detectedVideos: [] }, (res) => {
+    let videos = res.detectedVideos;
+    const exists = videos.some(v => v.url === matchingVideo.url);
+    if (!exists) {
+      videos.unshift(matchingVideo);
+      chrome.storage.local.set({ detectedVideos: videos }, () => {
+        // Wait for render, then scroll to card or highlight
+        setTimeout(() => {
+          const cardNode = document.getElementById(`card-${matchingVideo.id}`);
+          if (cardNode) {
+            cardNode.scrollIntoView({ behavior: 'smooth' });
+            cardNode.style.border = '1px solid var(--color-primary)';
+            setTimeout(() => cardNode.style.border = '1px solid var(--border-glass)', 2500);
+          }
+        }, 300);
+      });
+    } else {
+      // Find card element and highlight it
+      const match = videos.find(v => v.url === matchingVideo.url);
+      const cardNode = document.getElementById(`card-${match.id}`);
+      if (cardNode) {
+        cardNode.scrollIntoView({ behavior: 'smooth' });
+        cardNode.style.border = '1px solid var(--color-primary)';
+        setTimeout(() => cardNode.style.border = '1px solid var(--border-glass)', 2500);
+      }
+    }
+  });
+}

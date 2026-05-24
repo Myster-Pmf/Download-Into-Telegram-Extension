@@ -1,0 +1,27 @@
+{
+  "manifest_version": 2,
+  "name": "VideoGrab",
+  "version": "1.0",
+  "description": "Intercept video stream headers and download directly to Telegram.",
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "storage",
+    "tabs",
+    "activeTab",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "VideoGrab",
+    "default_icon": "icons/icon.png"
+  },
+  "icons": {
+    "48": "icons/icon.png",
+    "128": "icons/icon.png"
+  }
+}

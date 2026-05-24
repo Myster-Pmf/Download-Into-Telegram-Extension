@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VideoGrab Control Panel</title>
+  <link rel="stylesheet" href="popup.css">
+  <!-- Load modern font from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <img src="/icons/icon.png" alt="Logo" class="app-logo">
+        <div class="brand-text">
+          <h1>VideoGrab</h1>
+          <span class="sub-brand">Telegram Downloader</span>
+        </div>
+      </div>
+      <div id="backend-status" class="status-badge status-offline">
+        <span class="status-dot"></span>
+        <span class="status-text">Checking server...</span>
+      </div>
+    </header>
+
+    <!-- Tab Bar -->
+    <nav class="tab-bar">
+      <button class="tab-btn active" data-tab="tab-videos">
+        <span class="tab-icon">🎯</span>
+        <span class="tab-label">Videos</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-profiles">
+        <span class="tab-icon">🍪</span>
+        <span class="tab-label">Profiles</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-telegram">
+        <span class="tab-icon">📲</span>
+        <span class="tab-label">Telegram</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-history">
+        <span class="tab-icon">📜</span>
+        <span class="tab-label">History</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-settings">
+        <span class="tab-icon">⚙️</span>
+        <span class="tab-label">Settings</span>
+      </button>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="tab-content">
+      
+      <!-- Tab 1: Detected Videos -->
+      <section id="tab-videos" class="tab-pane active">
+        <div class="action-bar">
+          <div class="filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="HLS">HLS</button>
+            <button class="filter-btn" data-filter="DASH">DASH</button>
+            <button class="filter-btn" data-filter="MP4">MP4</button>
+          </div>
+          <button id="clear-videos-btn" class="btn btn-secondary btn-sm">Clear All</button>
+        </div>
+
+        <div id="videos-list" class="cards-list">
+          <!-- Populated dynamically via JS -->
+          <div class="empty-state">
+            <div class="empty-icon">🎬</div>
+            <h3>No streams detected</h3>
+            <p>Play a video on any page to capture its stream URL and headers.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 2: Site Profiles -->
+      <section id="tab-profiles" class="tab-pane">
+        <div class="profile-header-actions">
+          <h2>Site Cookie Profiles</h2>
+          <button id="new-profile-btn" class="btn btn-primary btn-sm">+ New Profile</button>
+        </div>
+
+        <div id="profiles-list" class="profiles-container">
+          <!-- Global Fallback Profile (Always present at the bottom) -->
+          <div class="profile-card global-fallback">
+            <div class="profile-card-header">
+              <span class="profile-name">🌐 Global Fallback</span>
+              <span class="profile-badge">Fallback Profile</span>
+            </div>
+            <div class="profile-card-body">
+              <p class="profile-desc">Used automatically when no domain-specific pattern matches the video stream URL.</p>
+              
+              <div class="form-group">
+                <label>Cookies (.txt Netscape format or RAW text)</label>
+                <div class="cookie-input-group">
+                  <textarea id="global-cookies" placeholder="# Netscape HTTP Cookie File&#10;domain.com	TRUE	/	FALSE	177983637	cookie_name	cookie_value" rows="3"></textarea>
+                  <div class="cookie-file-actions">
+                    <label class="btn btn-secondary btn-file">
+                      Import cookies.txt
+                      <input type="file" id="global-cookie-file" accept=".txt" style="display:none;">
+                    </label>
+                    <button id="clear-global-cookies" class="btn btn-danger-link btn-sm">Clear</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col-12">
+                  <label>Default User-Agent</label>
+                  <input type="text" id="global-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
+                </div>
+              </div>
+              
+              <button id="save-global-profile-btn" class="btn btn-secondary btn-block">Save Global Fallback</button>
+            </div>
+          </div>
+
+          <!-- Dynamic profile cards injected here -->
+          <div id="custom-profiles-list"></div>
+        </div>
+
+        <!-- Create/Edit Profile Modal overlay -->
+        <div id="profile-modal" class="modal-overlay">
+          <div class="modal-box">
+            <h3 id="modal-title">New Site Profile</h3>
+            <form id="profile-form">
+              <input type="hidden" id="profile-id">
+              
+              <div class="form-group">
+                <label>Profile Name</label>
+                <input type="text" id="prof-name" placeholder="e.g. Mediadelivery" required>
+              </div>
+
+              <div class="form-group">
+                <label>Domain Pattern (Glob matching, e.g. *.mediadelivery.net)</label>
+                <input type="text" id="prof-pattern" placeholder="*.mediadelivery.net" required>
+              </div>
+
+              <div class="form-group">
+                <label>Cookies (Netscape content or raw header values)</label>
+                <textarea id="prof-cookies" placeholder="# Netscape HTTP Cookie File..." rows="4"></textarea>
+                <label class="btn btn-secondary btn-file btn-sm mt-1">
+                  Upload cookies.txt
+                  <input type="file" id="prof-cookie-file" accept=".txt" style="display:none;">
+                </label>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col-6">
+                  <label>Origin Override</label>
+                  <input type="text" id="prof-origin" placeholder="https://iframe.mediadelivery.net">
+                </div>
+                <div class="form-group col-6">
+                  <label>Referer Override</label>
+                  <input type="text" id="prof-referer" placeholder="https://iframe.mediadelivery.net/">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>User-Agent Override</label>
+                <input type="text" id="prof-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
+              </div>
+
+              <div class="modal-buttons">
+                <button type="button" id="close-modal-btn" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Profile</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 3: Telegram Login -->
+      <section id="tab-telegram" class="tab-pane">
+        <h2>Telegram Authentication</h2>
+        <p class="section-desc">Authenticate your Telegram user account via MTProto to upload large videos (up to 2 GB) directly to channels and groups.</p>
+
+        <!-- Status Card -->
+        <div id="tg-status-card" class="tg-status-card logged-out">
+          <div class="tg-status-header">
+            <span class="status-label">Authentication Status</span>
+            <span id="tg-status-badge" class="badge badge-danger">🔴 Not logged in</span>
+          </div>
+          <div class="tg-status-body">
+            <p id="tg-status-text">Your backend is not signed into Telegram. Complete the form below to connect your account.</p>
+          </div>
+        </div>
+
+        <!-- Auth Wizard Panels -->
+        <div class="auth-box">
+          <!-- Step 1: Request Phone Number -->
+          <div id="auth-step-phone" class="auth-step-panel active">
+            <div class="form-group">
+              <label>Phone Number (with country code, e.g. +14155552671)</label>
+              <input type="tel" id="tg-phone" placeholder="+14155552671">
+            </div>
+            <button id="tg-send-otp-btn" class="btn btn-primary btn-block">Send OTP Code</button>
+          </div>
+
+          <!-- Step 2: Verify OTP -->
+          <div id="auth-step-otp" class="auth-step-panel">
+            <div class="form-group">
+              <label>Enter the 5-digit verification code received on Telegram</label>
+              <input type="text" id="tg-otp" placeholder="12345">
+            </div>
+            <div class="auth-button-group">
+              <button id="tg-back-phone-btn" class="btn btn-secondary">Back</button>
+              <button id="tg-verify-otp-btn" class="btn btn-primary">Verify Code</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Two-Factor Password -->
+          <div id="auth-step-2fa" class="auth-step-panel">
+            <div class="form-group">
+              <label>Two-Factor Password Required</label>
+              <div id="tg-2fa-hint" class="alert alert-info">Hint: Loading...</div>
+              <input type="password" id="tg-password" placeholder="Enter your 2FA password">
+            </div>
+            <div class="auth-button-group">
+              <button id="tg-back-otp-btn" class="btn btn-secondary">Back</button>
+              <button id="tg-verify-2fa-btn" class="btn btn-primary">Verify Password</button>
+            </div>
+          </div>
+
+          <!-- Logged in Controls -->
+          <div id="auth-step-logged" class="auth-step-panel">
+            <p>You can now close the extension or trigger video downloads. All processes run asynchronously in the background.</p>
+            <button id="tg-logout-btn" class="btn btn-danger btn-block">Sign Out of Telegram</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 4: Download History -->
+      <section id="tab-history" class="tab-pane">
+        <div class="history-header-actions">
+          <h2>Download History</h2>
+          <button id="refresh-history-btn" class="btn btn-secondary btn-sm">🔄 Refresh</button>
+        </div>
+
+        <div id="history-list" class="cards-list">
+          <!-- Dynamically populated -->
+          <div class="empty-state">
+            <div class="empty-icon">📜</div>
+            <h3>No download history found</h3>
+            <p>Recent downloads and queue states will be tracked here.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 5: Settings -->
+      <section id="tab-settings" class="tab-pane">
+        <h2>App Settings</h2>
+        
+        <form id="settings-form">
+          <div class="form-group">
+            <label>Backend URL</label>
+            <input type="url" id="sett-backend-url" placeholder="http://localhost:3000" required>
+            <small class="form-text text-muted">Endpoint of your Node.js server (e.g. Hugging Face Space URL).</small>
+          </div>
+
+          <div class="form-group">
+            <label>API Key (Shared Secret)</label>
+            <input type="password" id="sett-api-key" placeholder="Enter X-API-Key" required>
+          </div>
+
+          <div class="form-group">
+            <label>Telegram Target Chat/Channel</label>
+            <div style="display:flex; gap:8px;">
+              <select id="sett-tg-target" required style="flex:1;">
+                <option value="">-- Connect Telegram & Fetch Chats --</option>
+              </select>
+              <button type="button" id="refresh-chats-btn" class="btn btn-secondary btn-sm" title="Refresh chats list">🔄</button>
+            </div>
+            <input type="text" id="sett-tg-target-custom" placeholder="e.g. @mychannel or -100123456789" style="display:none; margin-top:8px;">
+            <small class="form-text text-muted">Select a chat from your logged-in Telegram account, or choose 'Custom ID...' to type one manually.</small>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label>Download Quality</label>
+              <select id="sett-quality">
+                <option value="best">Best (Default)</option>
+                <option value="1080p">1080p Max</option>
+                <option value="720p">720p Max</option>
+                <option value="480p">480p Max</option>
+                <option value="360p">360p Max</option>
+                <option value="worst">Worst / Smallest</option>
+              </select>
+            </div>
+            <div class="form-group col-6">
+              <label>Auto-Match Profiles</label>
+              <select id="sett-auto-match">
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Global Default User-Agent</label>
+            <input type="text" id="sett-default-ua" placeholder="Mozilla/5.0...">
+          </div>
+
+          <div class="form-group">
+            <label>Custom yt-dlp Flags</label>
+            <input type="text" id="sett-ytdlp-flags" placeholder="e.g. --embed-subs --proxy http://127.0.0.1:8080">
+            <small class="form-text text-muted">Additional parameters appended directly to yt-dlp CLI arguments.</small>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
+        </form>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
