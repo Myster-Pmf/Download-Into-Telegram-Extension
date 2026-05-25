@@ -18,7 +18,8 @@ router.post('/', (req, res) => {
       target,
       quality,
       extraFlags,
-      pageUrl
+      pageUrl,
+      totalBytes
     } = req.body;
 
     if (!url) {
@@ -59,6 +60,7 @@ router.post('/', (req, res) => {
       url: url,
       output_name: cleanFilename || null,
       page_url: pageUrl || null,
+      total_bytes: totalBytes || null,
       payload: payload // Save the payload alongside the job row
     };
 
@@ -75,6 +77,17 @@ router.post('/', (req, res) => {
   } catch (error) {
     console.error('[Router] Error enqueuing download:', error);
     res.status(500).json({ error: 'Failed to enqueue download job.' });
+  }
+});
+
+// POST /info - Resolve video metadata before queuing a download
+router.post('/info', async (req, res) => {
+  try {
+    const info = await ytdlp.getVideoInfo(req.body || {});
+    res.json(info);
+  } catch (error) {
+    console.error('[Router] Error resolving video info:', error);
+    res.status(500).json({ error: error.message || 'Failed to resolve video metadata.' });
   }
 });
 

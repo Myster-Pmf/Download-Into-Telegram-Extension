@@ -168,8 +168,16 @@ async function runDownload(job) {
   try {
     db.updateJob(jobId, { status: 'downloading', progress: 0, error: null });
 
-    const result = await ytdlp.downloadVideo(jobId, job.payload, (progressPercent) => {
-      db.updateJob(jobId, { progress: progressPercent });
+    const result = await ytdlp.downloadVideo(jobId, job.payload, (progress) => {
+      if (typeof progress === 'number') {
+        db.updateJob(jobId, { progress });
+      } else {
+        db.updateJob(jobId, {
+          progress: progress.percent,
+          downloaded_bytes: progress.downloadedBytes || 0,
+          total_bytes: progress.totalBytes || job.total_bytes || null
+        });
+      }
     });
 
     console.log(`[Queue] Download finished for job ${jobId}. Local file: ${result.filepath}`);
@@ -178,7 +186,9 @@ async function runDownload(job) {
       filename: result.filename,
       filepath: result.filepath,
       status: 'downloaded',
-      progress: 100
+      progress: 100,
+      downloaded_bytes: getFileSize(result.filepath),
+      total_bytes: getFileSize(result.filepath)
     });
   } catch (err) {
     console.error(`[Queue] Download job ${jobId} encountered an error:`, err);
@@ -199,7 +209,7 @@ async function runUpload(job) {
   console.log(`[Queue] Uploading job ${jobId} | File: ${job.filepath}`);
 
   try {
-    db.updateJob(jobId, { status: 'uploading', progress: 0, error: null });
+    db.updateJob(jobId, { status: 'uploading', progress: 0, downloaded_bytes: 0, error: null });
 
     const filepath = job.filepath;
     const filename = job.filename;
@@ -237,7 +247,12 @@ async function runUpload(job) {
           const percent = Math.min(99, Math.round(partProgress * 100));
           const cur = db.getJob(jobId);
           if (cur && cur.status === 'uploading') {
-            db.updateJob(jobId, { progress: percent });
+            const totalBytes = cur.total_bytes || getFileSize(filepath);
+            db.updateJob(jobId, {
+              progress: percent,
+              downloaded_bytes: Math.round((percent / 100) * totalBytes),
+              total_bytes: totalBytes
+            });
           }
         }
       );
@@ -245,7 +260,8 @@ async function runUpload(job) {
 
     const currentJob = db.getJob(jobId);
     if (currentJob && currentJob.status === 'uploading') {
-      db.updateJob(jobId, { status: 'done', progress: 100 });
+      const totalBytes = currentJob.total_bytes || getFileSize(filepath);
+      db.updateJob(jobId, { status: 'done', progress: 100, downloaded_bytes: totalBytes, total_bytes: totalBytes });
       console.log(`[Queue] Job ${jobId} finished successfully.`);
     } else {
       console.log(`[Queue] Job ${jobId} was cancelled during upload. Skipping success completion.`);

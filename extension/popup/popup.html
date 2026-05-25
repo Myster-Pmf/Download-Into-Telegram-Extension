@@ -4,14 +4,12 @@
   <meta charset="UTF-8">
   <title>VideoGrab Control Panel</title>
   <link rel="stylesheet" href="popup.css">
-  <!-- Load modern font from Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-container">
-    <!-- Header -->
     <header class="app-header">
       <div class="brand">
         <img src="/icons/icon.png" alt="Logo" class="app-logo">
@@ -26,45 +24,26 @@
       </div>
     </header>
 
-    <!-- Tab Bar -->
     <nav class="tab-bar">
-      <button class="tab-btn active" data-tab="tab-videos">
-        <span class="tab-icon">🎯</span>
-        <span class="tab-label">Videos</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-profiles">
-        <span class="tab-icon">🍪</span>
-        <span class="tab-label">Profiles</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-telegram">
-        <span class="tab-icon">📲</span>
-        <span class="tab-label">Telegram</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-history">
-        <span class="tab-icon">📜</span>
-        <span class="tab-label">History</span>
-      </button>
-      <button class="tab-btn" data-tab="tab-settings">
-        <span class="tab-icon">⚙️</span>
-        <span class="tab-label">Settings</span>
-      </button>
+      <button class="tab-btn active" data-tab="tab-videos"><span class="tab-icon">Video</span><span class="tab-label">Videos</span></button>
+      <button class="tab-btn" data-tab="tab-profiles"><span class="tab-icon">Auth</span><span class="tab-label">Profiles</span></button>
+      <button class="tab-btn" data-tab="tab-telegram"><span class="tab-icon">TG</span><span class="tab-label">Telegram</span></button>
+      <button class="tab-btn" data-tab="tab-history"><span class="tab-icon">Log</span><span class="tab-label">History</span></button>
+      <button class="tab-btn" data-tab="tab-settings"><span class="tab-icon">Set</span><span class="tab-label">Settings</span></button>
     </nav>
 
-    <!-- Main Content Container -->
     <main class="tab-content">
-      
-      <!-- Tab 1: Detected Videos -->
       <section id="tab-videos" class="tab-pane active">
-        <div class="action-bar" style="flex-wrap: wrap; gap: 8px;">
+        <div class="action-bar">
           <div class="filters">
             <button class="filter-btn active" data-filter="all">All</button>
             <button class="filter-btn" data-filter="HLS">HLS</button>
             <button class="filter-btn" data-filter="DASH">DASH</button>
             <button class="filter-btn" data-filter="MP4">MP4</button>
           </div>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <label class="scope-toggle" style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); cursor: pointer; user-select: none; margin-bottom: 0;">
-              <input type="checkbox" id="scope-tab-checkbox" checked style="width: auto; margin: 0; cursor: pointer; height: auto; padding: 0;">
+          <div class="action-bar-side">
+            <label class="scope-toggle">
+              <input type="checkbox" id="scope-tab-checkbox" checked>
               <span>Current Site Only</span>
             </label>
             <button id="clear-videos-btn" class="btn btn-secondary btn-sm">Clear All</button>
@@ -72,40 +51,38 @@
         </div>
 
         <div id="videos-list" class="cards-list">
-          <!-- Populated dynamically via JS -->
           <div class="empty-state">
-            <div class="empty-icon">🎬</div>
+            <div class="empty-icon">Video</div>
             <h3>No streams detected</h3>
             <p>Play a video on any page to capture its stream URL and headers.</p>
           </div>
         </div>
       </section>
 
-      <!-- Tab 2: Site Profiles -->
       <section id="tab-profiles" class="tab-pane">
         <div class="profile-header-actions">
           <h2>Site Cookie Profiles</h2>
-          <button id="new-profile-btn" class="btn btn-primary btn-sm">+ New Profile</button>
+          <button id="new-profile-btn" class="btn btn-primary btn-sm">New Profile</button>
         </div>
 
         <div id="profiles-list" class="profiles-container">
-          <!-- Global Fallback Profile (Always present at the bottom) -->
           <div class="profile-card global-fallback">
             <div class="profile-card-header">
-              <span class="profile-name">🌐 Global Fallback</span>
+              <span class="profile-name">Global Fallback</span>
               <span class="profile-badge">Fallback Profile</span>
             </div>
             <div class="profile-card-body">
               <p class="profile-desc">Used automatically when no domain-specific pattern matches the video stream URL.</p>
-              
+
               <div class="form-group">
-                <label>Cookies (.txt Netscape format or RAW text)</label>
+                <label>Cookies (.txt Netscape format or raw text)</label>
                 <div class="cookie-input-group">
                   <textarea id="global-cookies" placeholder="# Netscape HTTP Cookie File&#10;domain.com	TRUE	/	FALSE	177983637	cookie_name	cookie_value" rows="3"></textarea>
                   <div class="cookie-file-actions">
-                    <label class="btn btn-secondary btn-file">
-                      Import cookies.txt
-                      <input type="file" id="global-cookie-file" accept=".txt" style="display:none;">
+                    <label class="btn btn-secondary btn-file import-btn">
+                      <span class="btn-icon">Import</span>
+                      <span>Import cookies.txt</span>
+                      <input type="file" id="global-cookie-file" accept=".txt" hidden>
                     </label>
                     <button id="clear-global-cookies" class="btn btn-danger-link btn-sm">Clear</button>
                   </div>
@@ -118,38 +95,37 @@
                   <input type="text" id="global-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
                 </div>
               </div>
-              
+
               <button id="save-global-profile-btn" class="btn btn-secondary btn-block">Save Global Fallback</button>
             </div>
           </div>
 
-          <!-- Dynamic profile cards injected here -->
           <div id="custom-profiles-list"></div>
         </div>
 
-        <!-- Create/Edit Profile Modal overlay -->
         <div id="profile-modal" class="modal-overlay">
           <div class="modal-box">
             <h3 id="modal-title">New Site Profile</h3>
             <form id="profile-form">
               <input type="hidden" id="profile-id">
-              
+
               <div class="form-group">
                 <label>Profile Name</label>
                 <input type="text" id="prof-name" placeholder="e.g. Mediadelivery" required>
               </div>
 
               <div class="form-group">
-                <label>Domain Pattern (Glob matching, e.g. *.mediadelivery.net)</label>
+                <label>Domain Pattern (glob matching, e.g. *.mediadelivery.net)</label>
                 <input type="text" id="prof-pattern" placeholder="*.mediadelivery.net" required>
               </div>
 
               <div class="form-group">
                 <label>Cookies (Netscape content or raw header values)</label>
                 <textarea id="prof-cookies" placeholder="# Netscape HTTP Cookie File..." rows="4"></textarea>
-                <label class="btn btn-secondary btn-file btn-sm mt-1">
-                  Upload cookies.txt
-                  <input type="file" id="prof-cookie-file" accept=".txt" style="display:none;">
+                <label class="btn btn-secondary btn-file btn-sm mt-1 import-btn">
+                  <span class="btn-icon">Import</span>
+                  <span>Import cookies.txt</span>
+                  <input type="file" id="prof-cookie-file" accept=".txt" hidden>
                 </label>
               </div>
 
@@ -178,25 +154,21 @@
         </div>
       </section>
 
-      <!-- Tab 3: Telegram Login -->
       <section id="tab-telegram" class="tab-pane">
         <h2>Telegram Authentication</h2>
-        <p class="section-desc">Authenticate your Telegram user account via MTProto to upload large videos (up to 2 GB) directly to channels and groups.</p>
+        <p class="section-desc">Authenticate your Telegram user account via MTProto to upload large videos directly to channels and groups.</p>
 
-        <!-- Status Card -->
         <div id="tg-status-card" class="tg-status-card logged-out">
           <div class="tg-status-header">
             <span class="status-label">Authentication Status</span>
-            <span id="tg-status-badge" class="badge badge-danger">🔴 Not logged in</span>
+            <span id="tg-status-badge" class="badge badge-danger">Not logged in</span>
           </div>
           <div class="tg-status-body">
             <p id="tg-status-text">Your backend is not signed into Telegram. Complete the form below to connect your account.</p>
           </div>
         </div>
 
-        <!-- Auth Wizard Panels -->
         <div class="auth-box">
-          <!-- Step 1: Request Phone Number -->
           <div id="auth-step-phone" class="auth-step-panel active">
             <div class="form-group">
               <label>Phone Number (with country code, e.g. +14155552671)</label>
@@ -205,7 +177,6 @@
             <button id="tg-send-otp-btn" class="btn btn-primary btn-block">Send OTP Code</button>
           </div>
 
-          <!-- Step 2: Verify OTP -->
           <div id="auth-step-otp" class="auth-step-panel">
             <div class="form-group">
               <label>Enter the 5-digit verification code received on Telegram</label>
@@ -217,7 +188,6 @@
             </div>
           </div>
 
-          <!-- Step 3: Two-Factor Password -->
           <div id="auth-step-2fa" class="auth-step-panel">
             <div class="form-group">
               <label>Two-Factor Password Required</label>
@@ -230,40 +200,50 @@
             </div>
           </div>
 
-          <!-- Logged in Controls -->
           <div id="auth-step-logged" class="auth-step-panel">
-            <p>You can now close the extension or trigger video downloads. All processes run asynchronously in the background.</p>
+            <div class="telegram-target-panel">
+              <div>
+                <h3>Default Upload Target</h3>
+                <p>New downloads use this chat or channel. Running transfers keep their current target.</p>
+              </div>
+              <div class="form-group">
+                <label>Chat or Channel</label>
+                <div class="target-picker-row">
+                  <select id="tg-target-select"><option value="">Loading chats...</option></select>
+                  <button type="button" id="tg-refresh-chats-btn" class="btn btn-secondary btn-sm" title="Refresh chats list">Refresh</button>
+                </div>
+                <input type="text" id="tg-target-custom" placeholder="e.g. @mychannel or -100123456789" class="target-custom-input">
+              </div>
+              <button type="button" id="tg-save-target-btn" class="btn btn-secondary btn-block">Save Upload Target</button>
+            </div>
             <button id="tg-logout-btn" class="btn btn-danger btn-block">Sign Out of Telegram</button>
           </div>
         </div>
       </section>
 
-      <!-- Tab 4: Download History -->
       <section id="tab-history" class="tab-pane">
         <div class="history-header-actions">
           <h2>Download History</h2>
-          <button id="refresh-history-btn" class="btn btn-secondary btn-sm">🔄 Refresh</button>
+          <button id="refresh-history-btn" class="btn btn-secondary btn-sm">Refresh</button>
         </div>
 
         <div id="history-list" class="cards-list">
-          <!-- Dynamically populated -->
           <div class="empty-state">
-            <div class="empty-icon">📜</div>
+            <div class="empty-icon">Log</div>
             <h3>No download history found</h3>
             <p>Recent downloads and queue states will be tracked here.</p>
           </div>
         </div>
       </section>
 
-      <!-- Tab 5: Settings -->
       <section id="tab-settings" class="tab-pane">
         <h2>App Settings</h2>
-        
+
         <form id="settings-form">
           <div class="form-group">
             <label>Backend URL</label>
             <input type="url" id="sett-backend-url" placeholder="http://localhost:3000" required>
-            <small class="form-text text-muted">Endpoint of your Node.js server (e.g. Hugging Face Space URL).</small>
+            <small class="form-text text-muted">Endpoint of your Node.js server.</small>
           </div>
 
           <div class="form-group">
@@ -273,14 +253,14 @@
 
           <div class="form-group">
             <label>Telegram Target Chat/Channel</label>
-            <div style="display:flex; gap:8px;">
-              <select id="sett-tg-target" required style="flex:1;">
-                <option value="">-- Connect Telegram & Fetch Chats --</option>
+            <div class="target-picker-row">
+              <select id="sett-tg-target" required>
+                <option value="">Connect Telegram and fetch chats</option>
               </select>
-              <button type="button" id="refresh-chats-btn" class="btn btn-secondary btn-sm" title="Refresh chats list">🔄</button>
+              <button type="button" id="refresh-chats-btn" class="btn btn-secondary btn-sm" title="Refresh chats list">Refresh</button>
             </div>
-            <input type="text" id="sett-tg-target-custom" placeholder="e.g. @mychannel or -100123456789" style="display:none; margin-top:8px;">
-            <small class="form-text text-muted">Select a chat from your logged-in Telegram account, or choose 'Custom ID...' to type one manually.</small>
+            <input type="text" id="sett-tg-target-custom" placeholder="e.g. @mychannel or -100123456789" class="target-custom-input">
+            <small class="form-text text-muted">Select a chat from your logged-in Telegram account, or choose Custom ID to type one manually.</small>
           </div>
 
           <div class="form-row">
@@ -318,8 +298,24 @@
           <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
         </form>
       </section>
-
     </main>
+
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+
+    <div id="app-dialog" class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
+      <div class="dialog-box">
+        <div id="app-dialog-icon" class="dialog-icon">!</div>
+        <div class="dialog-content">
+          <h3 id="app-dialog-title">Confirm Action</h3>
+          <p id="app-dialog-message"></p>
+          <div id="app-dialog-detail" class="dialog-detail"></div>
+          <div class="dialog-actions">
+            <button type="button" id="app-dialog-cancel" class="btn btn-secondary">Cancel</button>
+            <button type="button" id="app-dialog-confirm" class="btn btn-primary">OK</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

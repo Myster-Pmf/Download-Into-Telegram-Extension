@@ -17,6 +17,8 @@ router.get('/status/:jobId', (req, res) => {
       jobId: job.id,
       status: job.status,
       progress: job.progress,
+      downloadedBytes: job.downloaded_bytes || 0,
+      totalBytes: job.total_bytes || null,
       filename: job.filename,
       error: job.error
     });
@@ -39,6 +41,8 @@ router.get('/jobs', (req, res) => {
         outputName: j.output_name,
         status: j.status,
         progress: j.progress,
+        downloadedBytes: j.downloaded_bytes || 0,
+        totalBytes: j.total_bytes || null,
         filename: j.filename,
         pageUrl: j.page_url,
         error: j.error,

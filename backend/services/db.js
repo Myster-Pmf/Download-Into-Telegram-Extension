@@ -46,6 +46,8 @@ function createJob(job) {
     output_name: job.output_name || null,
     status: 'queued',
     progress: 0,
+    downloaded_bytes: 0,
+    total_bytes: job.total_bytes || null,
     filename: null,
     filepath: null,
     page_url: job.page_url || null,

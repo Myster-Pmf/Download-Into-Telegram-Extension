@@ -19,6 +19,8 @@ let globalUserAgent = navigator.userAgent;
 
 // Active download polling timers (jobId => intervalId)
 const activePolls = new Map();
+const videoInfoCache = new Map();
+let telegramLoggedIn = false;
 
 // --- Glob to Regex Converter ---
 function globToRegex(glob) {
@@ -56,7 +58,7 @@ const elements = {
   videosList: document.getElementById('videos-list'),
   customProfilesList: document.getElementById('custom-profiles-list'),
   historyList: document.getElementById('history-list'),
-  
+
   // Settings Form
   settingsForm: document.getElementById('settings-form'),
   settBackendUrl: document.getElementById('sett-backend-url'),
@@ -64,6 +66,10 @@ const elements = {
   settTgTarget: document.getElementById('sett-tg-target'),
   settTgTargetCustom: document.getElementById('sett-tg-target-custom'),
   refreshChatsBtn: document.getElementById('refresh-chats-btn'),
+  tgTargetSelect: document.getElementById('tg-target-select'),
+  tgTargetCustom: document.getElementById('tg-target-custom'),
+  tgRefreshChatsBtn: document.getElementById('tg-refresh-chats-btn'),
+  tgSaveTargetBtn: document.getElementById('tg-save-target-btn'),
   settQuality: document.getElementById('sett-quality'),
   settAutoMatch: document.getElementById('sett-auto-match'),
   settDefaultUa: document.getElementById('sett-default-ua'),
@@ -80,28 +86,29 @@ const elements = {
   tgStatusCard: document.getElementById('tg-status-card'),
   tgStatusBadge: document.getElementById('tg-status-badge'),
   tgStatusText: document.getElementById('tg-status-text'),
-  
+
   authStepPhone: document.getElementById('auth-step-phone'),
   authStepOtp: document.getElementById('auth-step-otp'),
   authStep2fa: document.getElementById('auth-step-2fa'),
   authStepLogged: document.getElementById('auth-step-logged'),
-  
+
   tgPhone: document.getElementById('tg-phone'),
   tgOtp: document.getElementById('tg-otp'),
   tgPassword: document.getElementById('tg-password'),
   tg2faHint: document.getElementById('tg-2fa-hint'),
-  
+
   // Telegram action buttons
   tgSendOtpBtn: document.getElementById('tg-send-otp-btn'),
   tgVerifyOtpBtn: document.getElementById('tg-verify-otp-btn'),
   tgVerify2faBtn: document.getElementById('tg-verify-2fa-btn'),
   tgLogoutBtn: document.getElementById('tg-logout-btn'),
-  
+
   tgBackPhoneBtn: document.getElementById('tg-back-phone-btn'),
   tgBackOtpBtn: document.getElementById('tg-back-otp-btn'),
-  
+
   // Custom Profile Modal
   profileModal: document.getElementById('profile-modal'),
+  modalTitle: document.getElementById('modal-title'),
   profileForm: document.getElementById('profile-form'),
   profileId: document.getElementById('profile-id'),
   profName: document.getElementById('prof-name'),
@@ -113,10 +120,18 @@ const elements = {
   profUa: document.getElementById('prof-ua'),
   closeModalBtn: document.getElementById('close-modal-btn'),
   newProfileBtn: document.getElementById('new-profile-btn'),
-  
+
   clearVideosBtn: document.getElementById('clear-videos-btn'),
   refreshHistoryBtn: document.getElementById('refresh-history-btn'),
-  scopeTabCheckbox: document.getElementById('scope-tab-checkbox')
+  scopeTabCheckbox: document.getElementById('scope-tab-checkbox'),
+  toastRegion: document.getElementById('toast-region'),
+  appDialog: document.getElementById('app-dialog'),
+  appDialogIcon: document.getElementById('app-dialog-icon'),
+  appDialogTitle: document.getElementById('app-dialog-title'),
+  appDialogMessage: document.getElementById('app-dialog-message'),
+  appDialogDetail: document.getElementById('app-dialog-detail'),
+  appDialogCancel: document.getElementById('app-dialog-cancel'),
+  appDialogConfirm: document.getElementById('app-dialog-confirm')
 };
 
 let activeTabUrl = '';
@@ -129,6 +144,145 @@ function getDomain(urlStr) {
   } catch (e) {
     return '';
   }
+}
+
+function showToast(message, type = 'info') {
+  if (!elements.toastRegion) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  elements.toastRegion.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(6px)';
+    setTimeout(() => toast.remove(), 220);
+  }, 3200);
+}
+
+function showDialog({
+  title = 'Confirm Action',
+  message = '',
+  detail = '',
+  confirmText = 'OK',
+  cancelText = 'Cancel',
+  variant = 'warning',
+  hideCancel = false
+} = {}) {
+  return new Promise((resolve) => {
+    const dialog = elements.appDialog;
+    if (!dialog) {
+      resolve(!hideCancel);
+      return;
+    }
+
+    elements.appDialogTitle.textContent = title;
+    elements.appDialogMessage.textContent = message;
+    elements.appDialogConfirm.textContent = confirmText;
+    elements.appDialogCancel.textContent = cancelText;
+    elements.appDialogCancel.style.display = hideCancel ? 'none' : 'inline-flex';
+    elements.appDialogIcon.textContent = variant === 'danger' ? '!' : variant === 'success' ? 'OK' : '!';
+    elements.appDialogIcon.style.background = variant === 'danger' ? 'rgba(239, 68, 68, 0.14)' : variant === 'success' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(245, 158, 11, 0.14)';
+    elements.appDialogIcon.style.color = variant === 'danger' ? '#fca5a5' : variant === 'success' ? 'var(--status-green)' : '#fbbf24';
+
+    if (detail) {
+      elements.appDialogDetail.textContent = detail;
+      elements.appDialogDetail.classList.add('active');
+    } else {
+      elements.appDialogDetail.textContent = '';
+      elements.appDialogDetail.classList.remove('active');
+    }
+
+    const cleanup = (result) => {
+      dialog.classList.remove('active');
+      elements.appDialogConfirm.removeEventListener('click', onConfirm);
+      elements.appDialogCancel.removeEventListener('click', onCancel);
+      dialog.removeEventListener('click', onOverlay);
+      resolve(result);
+    };
+    const onConfirm = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onOverlay = (event) => {
+      if (event.target === dialog && !hideCancel) cleanup(false);
+    };
+
+    elements.appDialogConfirm.addEventListener('click', onConfirm);
+    elements.appDialogCancel.addEventListener('click', onCancel);
+    dialog.addEventListener('click', onOverlay);
+    dialog.classList.add('active');
+  });
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function getSelectedTarget(selectEl, customEl) {
+  if (!selectEl) return '';
+  return selectEl.value === 'custom' ? (customEl.value || '').trim() : selectEl.value;
+}
+
+function setTargetControlsValue(target) {
+  [elements.settTgTarget, elements.tgTargetSelect].forEach((select) => {
+    if (!select) return;
+    const customInput = select === elements.settTgTarget ? elements.settTgTargetCustom : elements.tgTargetCustom;
+    const hasOption = Array.from(select.options).some(opt => opt.value === target);
+    if (target && hasOption) {
+      select.value = target;
+      customInput.style.display = 'none';
+      customInput.value = '';
+    } else if (target) {
+      select.value = 'custom';
+      customInput.style.display = 'block';
+      customInput.value = target;
+    }
+  });
+}
+
+function syncTargetControls(sourceSelect, sourceCustom) {
+  const target = getSelectedTarget(sourceSelect, sourceCustom);
+  if (sourceSelect.value === 'custom') {
+    sourceCustom.style.display = 'block';
+  } else {
+    sourceCustom.style.display = 'none';
+  }
+  setTargetControlsValue(target);
+}
+
+async function hasActiveTransfers() {
+  try {
+    const response = await fetch(`${activeSettings.backendUrl}/jobs?limit=25`, {
+      headers: { 'X-API-Key': activeSettings.apiKey }
+    });
+    if (!response.ok) return activeJobsMap.size > 0;
+    const jobs = await response.json();
+    return jobs.some(j => ['queued', 'downloading', 'downloaded', 'uploading'].includes(String(j.status).toLowerCase()));
+  } catch (e) {
+    return activeJobsMap.size > 0;
+  }
+}
+
+async function confirmTargetChangeIfNeeded(oldTarget, newTarget) {
+  if (!oldTarget || oldTarget === newTarget) return true;
+  if (!(await hasActiveTransfers())) return true;
+
+  return showDialog({
+    title: 'Change Telegram Target?',
+    message: 'There are active or queued transfers right now.',
+    detail: 'Changing the chat or channel only affects the next download/upload. The transfer already running keeps the target it was started with.',
+    confirmText: 'Change Target',
+    cancelText: 'Keep Current',
+    variant: 'warning'
+  });
 }
 
 async function loadActiveJobs() {
@@ -162,7 +316,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupTabs();
     await loadSettings(); // Restores sync settings instantly
     await loadSiteProfiles(); // Restores local site profiles instantly
-    
+
     // 2. Render detected videos list immediately from local storage (extremely fast, zero blocking!)
     await refreshDetectedVideos();
 
@@ -172,16 +326,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (activeSettings.tgTarget) {
         fetchTelegramChats(activeSettings.tgTarget);
       }
-      
+
       // Ping backend
       pingBackend();
-      
+
       // Check Telegram auth status
       await checkTelegramStatus();
 
       // Fetch active running jobs
       await loadActiveJobs();
-      
+
       // Re-render videos to attach progress tracking bars for running jobs if any exist
       if (activeJobsMap.size > 0) {
         renderVideos();
@@ -206,22 +360,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Settings form submission
     elements.settingsForm.addEventListener('submit', saveSettings);
 
-    // Settings form target dropdown change toggle
+    // Keep Telegram target controls in Settings and Telegram tabs synchronized.
     elements.settTgTarget.addEventListener('change', () => {
+      syncTargetControls(elements.settTgTarget, elements.settTgTargetCustom);
+    });
+    elements.settTgTargetCustom.addEventListener('input', () => {
       if (elements.settTgTarget.value === 'custom') {
+        elements.tgTargetSelect.value = 'custom';
+        elements.tgTargetCustom.value = elements.settTgTargetCustom.value;
+        elements.tgTargetCustom.style.display = 'block';
+      }
+    });
+    elements.tgTargetSelect.addEventListener('change', () => {
+      syncTargetControls(elements.tgTargetSelect, elements.tgTargetCustom);
+    });
+    elements.tgTargetCustom.addEventListener('input', () => {
+      if (elements.tgTargetSelect.value === 'custom') {
+        elements.settTgTarget.value = 'custom';
+        elements.settTgTargetCustom.value = elements.tgTargetCustom.value;
         elements.settTgTargetCustom.style.display = 'block';
-      } else {
-        elements.settTgTargetCustom.style.display = 'none';
       }
     });
 
     // Settings form refresh chats click
     elements.refreshChatsBtn.addEventListener('click', async () => {
       elements.refreshChatsBtn.disabled = true;
-      elements.refreshChatsBtn.innerText = '⏳';
+      elements.refreshChatsBtn.innerText = 'Loading...';
       await fetchTelegramChats(activeSettings.tgTarget);
       elements.refreshChatsBtn.disabled = false;
-      elements.refreshChatsBtn.innerText = '🔄';
+      elements.refreshChatsBtn.innerText = 'Refresh';
+    });
+
+    elements.tgRefreshChatsBtn.addEventListener('click', async () => {
+      elements.tgRefreshChatsBtn.disabled = true;
+      elements.tgRefreshChatsBtn.innerText = 'Loading...';
+      await fetchTelegramChats(activeSettings.tgTarget);
+      elements.tgRefreshChatsBtn.disabled = false;
+      elements.tgRefreshChatsBtn.innerText = 'Refresh';
+    });
+    elements.tgSaveTargetBtn.addEventListener('click', async () => {
+      await saveSettings();
     });
 
     // Clear videos
@@ -242,7 +420,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Cookie files readers
     setupCookieFileReaders();
-    
+
     // Save Global Profile
     elements.saveGlobalProfileBtn.addEventListener('click', saveGlobalProfile);
     elements.clearGlobalCookies.addEventListener('click', () => {
@@ -251,7 +429,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Telegram auth listeners
     setupTelegramWizardListeners();
-    
+
     // History tab click auto-fetch
     document.querySelector('[data-tab="tab-history"]').addEventListener('click', fetchHistory);
   });
@@ -286,27 +464,36 @@ async function loadSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(DEFAULT_SETTINGS, (items) => {
       activeSettings = items;
-      
+
       elements.settBackendUrl.value = items.backendUrl;
       elements.settApiKey.value = items.apiKey;
       elements.settQuality.value = items.quality;
       elements.settAutoMatch.value = items.autoMatch;
       elements.settDefaultUa.value = items.defaultUa;
       elements.settYtdlpFlags.value = items.ytdlpFlags;
-      
+      setTargetControlsValue(items.tgTarget);
+
       resolve();
     });
   });
 }
 
-function saveSettings(e) {
+async function saveSettings(e) {
   if (e) e.preventDefault();
-  
-  let target = elements.settTgTarget.value;
-  if (target === 'custom') {
-    target = elements.settTgTargetCustom.value.trim();
+
+  const target = getSelectedTarget(elements.settTgTarget, elements.settTgTargetCustom);
+
+  if (!target) {
+    showToast('Choose a Telegram target chat or channel first.', 'warning');
+    return;
   }
-  
+
+  const canChangeTarget = await confirmTargetChangeIfNeeded(activeSettings.tgTarget, target);
+  if (!canChangeTarget) {
+    setTargetControlsValue(activeSettings.tgTarget);
+    return;
+  }
+
   const newSettings = {
     backendUrl: elements.settBackendUrl.value.trim().replace(/\/$/, ''), // Remove trailing slash
     apiKey: elements.settApiKey.value.trim(),
@@ -317,20 +504,27 @@ function saveSettings(e) {
     ytdlpFlags: elements.settYtdlpFlags.value.trim()
   };
 
-  chrome.storage.sync.set(newSettings, async () => {
-    activeSettings = newSettings;
-    alert('Settings saved successfully!');
-    pingBackend(); // Re-ping new backend
-    await fetchTelegramChats(target); // Refresh chats list
+  return new Promise((resolve) => {
+    chrome.storage.sync.set(newSettings, async () => {
+      activeSettings = newSettings;
+      showToast('Settings saved successfully.', 'success');
+      pingBackend(); // Re-ping new backend
+      await fetchTelegramChats(target); // Refresh chats list
+      resolve();
+    });
   });
 }
 
 async function fetchTelegramChats(savedTarget = null) {
-  const select = elements.settTgTarget;
-  const customInput = elements.settTgTargetCustom;
-  
-  select.innerHTML = '<option value="">Loading chats...</option>';
-  customInput.style.display = 'none';
+  const selects = [elements.settTgTarget, elements.tgTargetSelect].filter(Boolean);
+  const customInputs = [elements.settTgTargetCustom, elements.tgTargetCustom].filter(Boolean);
+
+  selects.forEach(select => {
+    select.innerHTML = '<option value="">Loading chats...</option>';
+  });
+  customInputs.forEach(input => {
+    input.style.display = 'none';
+  });
 
   try {
     const response = await fetch(`${activeSettings.backendUrl}/telegram/chats`, {
@@ -344,44 +538,52 @@ async function fetchTelegramChats(savedTarget = null) {
     }
 
     const chats = await response.json();
-    select.innerHTML = '';
-    
-    // Custom option first
-    const customOpt = document.createElement('option');
-    customOpt.value = 'custom';
-    customOpt.innerText = '-- Custom Username or ID --';
-    select.appendChild(customOpt);
+    selects.forEach(select => {
+      select.innerHTML = '';
+
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      customOpt.innerText = 'Custom username or ID';
+      select.appendChild(customOpt);
+    });
 
     let matched = false;
     chats.forEach(chat => {
-      const opt = document.createElement('option');
       const val = chat.username || chat.id;
-      opt.value = val;
-      opt.innerText = `${chat.title} (${chat.type}${chat.username ? ` - ${chat.username}` : ''})`;
-      select.appendChild(opt);
+      selects.forEach(select => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.innerText = `${chat.title} (${chat.type}${chat.username ? ` - ${chat.username}` : ''})`;
+        select.appendChild(opt);
+      });
 
-      if (savedTarget && (savedTarget === chat.id || savedTarget === chat.username)) {
-        opt.selected = true;
+      if (savedTarget && (String(savedTarget) === String(chat.id) || savedTarget === chat.username)) {
         matched = true;
       }
     });
 
     if (savedTarget && !matched) {
-      select.value = 'custom';
-      customInput.style.display = 'block';
-      customInput.value = savedTarget;
+      selects.forEach(select => { select.value = 'custom'; });
+      customInputs.forEach(input => {
+        input.style.display = 'block';
+        input.value = savedTarget;
+      });
     } else if (!savedTarget && chats.length > 0) {
-      select.selectedIndex = 1; // Default to first available chat
+      selects.forEach(select => { select.selectedIndex = 1; });
+    } else if (savedTarget) {
+      setTargetControlsValue(savedTarget);
     }
 
   } catch (e) {
     console.error('[Settings] Dialogs fetch failed:', e);
-    select.innerHTML = '<option value="custom">-- Custom Username/ID (Not Logged In) --</option>';
-    select.value = 'custom';
-    customInput.style.display = 'block';
-    if (savedTarget) {
-      customInput.value = savedTarget;
-    }
+    selects.forEach(select => {
+      select.innerHTML = '<option value="custom">Custom username or ID</option>';
+      select.value = 'custom';
+    });
+    customInputs.forEach(input => {
+      input.style.display = 'block';
+      if (savedTarget) input.value = savedTarget;
+    });
   }
 }
 
@@ -416,14 +618,14 @@ function saveGlobalProfile() {
   }, () => {
     globalCookiesText = cookies;
     globalUserAgent = ua;
-    alert('Global Fallback profile updated!');
+    showToast('Global fallback profile updated.', 'success');
     renderVideos(); // Re-render videos indicators
   });
 }
 
 function renderProfilesList() {
   elements.customProfilesList.innerHTML = '';
-  
+
   if (siteProfiles.length === 0) {
     elements.customProfilesList.innerHTML = `
       <div class="empty-state" style="padding: 20px; border-style: solid;">
@@ -436,10 +638,10 @@ function renderProfilesList() {
   siteProfiles.forEach((profile) => {
     const card = document.createElement('div');
     card.className = 'profile-card';
-    
+
     // Cookie string snippet size computation
     const cookieSize = profile.cookiesText ? Math.round(profile.cookiesText.length / 1024) : 0;
-    
+
     card.innerHTML = `
       <div class="profile-card-header">
         <span class="profile-name">${profile.name}</span>
@@ -450,7 +652,7 @@ function renderProfilesList() {
       </div>
       <div class="profile-card-body" style="font-size: 12px; line-height: 1.6;">
         <div><strong>Pattern:</strong> <code>${profile.domainPattern}</code></div>
-        <div><strong>Cookies:</strong> ${cookieSize > 0 ? `🍪 Imported (${cookieSize} KB)` : '❌ None'}</div>
+        <div><strong>Cookies:</strong> ${cookieSize > 0 ? `Imported (${cookieSize} KB)` : 'None'}</div>
         ${profile.defaultOrigin ? `<div><strong>Origin:</strong> <code>${profile.defaultOrigin}</code></div>` : ''}
         ${profile.defaultReferer ? `<div><strong>Referer:</strong> <code>${profile.defaultReferer}</code></div>` : ''}
         ${profile.defaultUserAgent ? `<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; max-width: 450px;"><strong>UA:</strong> <small>${profile.defaultUserAgent}</small></div>` : ''}
@@ -460,14 +662,14 @@ function renderProfilesList() {
     // Wire actions
     card.querySelector('.edit-prof-btn').addEventListener('click', () => openProfileModal(profile.id));
     card.querySelector('.delete-prof-btn').addEventListener('click', () => deleteProfile(profile.id));
-    
+
     elements.customProfilesList.appendChild(card);
   });
 }
 
 function openProfileModal(id = null) {
   elements.profileForm.reset();
-  
+
   if (id) {
     // Edit mode
     const prof = siteProfiles.find(p => p.id === id);
@@ -486,7 +688,7 @@ function openProfileModal(id = null) {
     elements.modalTitle.innerText = 'New Site Profile';
     elements.profileId.value = '';
   }
-  
+
   elements.profileModal.classList.add('active');
 }
 
@@ -496,7 +698,7 @@ function closeProfileModal() {
 
 function saveCustomProfile(e) {
   e.preventDefault();
-  
+
   const id = elements.profileId.value;
   const name = elements.profName.value.trim();
   const pattern = elements.profPattern.value.trim();
@@ -531,9 +733,16 @@ function saveCustomProfile(e) {
   });
 }
 
-function deleteProfile(id) {
-  if (!confirm('Are you sure you want to delete this profile?')) return;
-  
+async function deleteProfile(id) {
+  const ok = await showDialog({
+    title: 'Delete Profile?',
+    message: 'This removes the saved cookies and header overrides for this site profile.',
+    confirmText: 'Delete Profile',
+    cancelText: 'Cancel',
+    variant: 'danger'
+  });
+  if (!ok) return;
+
   siteProfiles = siteProfiles.filter(p => p.id !== id);
   chrome.storage.local.set({ siteProfiles }, () => {
     renderProfilesList();
@@ -574,12 +783,14 @@ async function refreshDetectedVideos() {
   });
 }
 
-function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
+function updateCardProgressUi(videoId, status, percent, errorMsg = '', metrics = {}) {
   const cardElement = document.getElementById(`card-${videoId}`);
   if (!cardElement) return;
+  const statusKey = String(status || '').toLowerCase();
 
   const statusLabel = cardElement.querySelector('.progress-status');
   const percentLabel = cardElement.querySelector('.progress-percent');
+  const measureLabel = cardElement.querySelector('.progress-measure');
   const fill = cardElement.querySelector('.progress-bar-fill');
   const downloadButton = cardElement.querySelector('.download-video-btn');
   const filenameInput = cardElement.querySelector('.filename-input');
@@ -588,10 +799,21 @@ function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
 
   if (statusLabel) {
     statusLabel.innerText = status;
-    statusLabel.className = `progress-status status-${status.toLowerCase()}`;
+    statusLabel.className = `progress-status status-${statusKey}`;
   }
   if (percentLabel) {
     percentLabel.innerText = `${percent}%`;
+  }
+  if (measureLabel) {
+    const downloaded = formatBytes(metrics.downloadedBytes);
+    const total = formatBytes(metrics.totalBytes);
+    if (downloaded && total) {
+      measureLabel.innerText = `${downloaded} / ${total}`;
+    } else if (total) {
+      measureLabel.innerText = `Size ${total}`;
+    } else {
+      measureLabel.innerText = '';
+    }
   }
   if (fill) {
     fill.style.width = `${percent}%`;
@@ -603,9 +825,9 @@ function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
     progContainer.style.display = 'block';
   }
 
-  if (status === 'error') {
+  if (statusKey === 'error') {
     if (percentLabel) percentLabel.innerText = 'Error';
-    
+
     // Create or update error message node
     let errNode = cardElement.querySelector('.card-error-text');
     if (!errNode) {
@@ -617,7 +839,7 @@ function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
       cardElement.appendChild(errNode);
     }
     errNode.innerText = errorMsg;
-    
+
     if (downloadButton) {
       downloadButton.disabled = false;
       downloadButton.innerText = 'Retry Download';
@@ -626,14 +848,14 @@ function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
     if (removeBtn) removeBtn.disabled = false;
     if (cancelBtn) cancelBtn.style.display = 'none';
 
-  } else if (status === 'done') {
+  } else if (statusKey === 'done') {
     // Hide error node if any
     const errNode = cardElement.querySelector('.card-error-text');
     if (errNode) errNode.remove();
 
     if (downloadButton) {
       downloadButton.disabled = false;
-      downloadButton.innerText = '⬇ Download';
+      downloadButton.innerText = 'Download';
     }
     if (filenameInput) filenameInput.disabled = false;
     if (removeBtn) removeBtn.disabled = false;
@@ -647,11 +869,11 @@ function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
 
     if (downloadButton) {
       downloadButton.disabled = true;
-      downloadButton.innerText = 'Downloading...';
+      downloadButton.innerText = statusKey === 'uploading' ? 'Uploading...' : 'Downloading...';
     }
     if (filenameInput) filenameInput.disabled = true;
     if (removeBtn) removeBtn.disabled = true;
-    
+
     if (cancelBtn) {
       cancelBtn.style.display = 'inline-block';
       cancelBtn.disabled = false;
@@ -662,7 +884,7 @@ function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
 
 function renderVideos(filterType = null) {
   elements.videosList.innerHTML = '';
-  
+
   if (!filterType) {
     const activeFilterBtn = document.querySelector('.filter-btn.active');
     filterType = activeFilterBtn ? activeFilterBtn.getAttribute('data-filter') : 'all';
@@ -676,7 +898,7 @@ function renderVideos(filterType = null) {
     if (filterType !== 'all' && vid.type.toUpperCase() !== filterType.toUpperCase()) {
       return false;
     }
-    
+
     // 2. Domain-based filtering
     if (scopeToCurrent && activeDomain) {
       const vidDomain = getDomain(vid.pageUrl);
@@ -684,7 +906,7 @@ function renderVideos(filterType = null) {
         return false;
       }
     }
-    
+
     return true;
   });
 
@@ -706,9 +928,9 @@ function renderVideos(filterType = null) {
 
     // Auto-match cookie profiles
     const matchedProfile = matchProfileForUrl(video.url);
-    const profileLabel = matchedProfile 
-      ? `🍪 Matched Profile: ${matchedProfile.name} (${matchedProfile.domainPattern})` 
-      : `🌐 Global fallback cookies`;
+    const profileLabel = matchedProfile
+      ? `Matched profile: ${matchedProfile.name} (${matchedProfile.domainPattern})`
+      : 'Global fallback cookies';
 
     const profileClass = matchedProfile ? '' : 'global';
 
@@ -728,6 +950,11 @@ function renderVideos(filterType = null) {
 
       <div class="cookie-match-indicator ${profileClass}">
         ${profileLabel}
+      </div>
+
+      <div class="video-meta-row">
+        <span class="video-size-text">Size: <span class="video-size-value">Not checked yet</span></span>
+        <button type="button" class="btn-link check-size-btn">Check size</button>
       </div>
 
       <div class="form-group">
@@ -762,6 +989,7 @@ function renderVideos(filterType = null) {
         <div class="progress-info" style="align-items: center; display: flex; justify-content: space-between;">
           <span class="progress-status status-queued">Queued</span>
           <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="progress-measure"></span>
             <span class="progress-percent">0%</span>
             <button type="button" class="btn-link cancel-download-btn" style="color: var(--status-red); font-size: 10px; font-weight: bold; text-decoration: none; padding: 0;">[Cancel]</button>
           </div>
@@ -773,14 +1001,18 @@ function renderVideos(filterType = null) {
 
       <div class="card-bottom-actions">
         <button class="btn btn-secondary btn-sm remove-video-btn">Remove</button>
-        <button class="btn btn-primary btn-sm download-video-btn">⬇ Download</button>
+        <button class="btn btn-primary btn-sm download-video-btn">Download</button>
       </div>
     `;
 
     // Wire actions
     card.querySelector('.copy-url-btn').addEventListener('click', () => {
       navigator.clipboard.writeText(video.url);
-      alert('URL copied to clipboard!');
+      showToast('URL copied to clipboard.', 'success');
+    });
+
+    card.querySelector('.check-size-btn').addEventListener('click', async () => {
+      await fetchVideoInfo(video, card, matchedProfile);
     });
 
     // Expand headers toggle
@@ -822,13 +1054,19 @@ function renderVideos(filterType = null) {
         if (resData.success) {
           console.log(`Job ${jobId} successfully cancelled.`);
         } else {
-          alert(`Could not cancel download: ${resData.message}`);
+          showDialog({
+            title: 'Could Not Cancel',
+            message: resData.message || 'The backend could not cancel this transfer.',
+            confirmText: 'OK',
+            hideCancel: true,
+            variant: 'danger'
+          });
           cancelBtn.disabled = false;
           cancelBtn.innerText = '[Cancel]';
         }
       } catch (err) {
         console.error('Failed to send cancel request:', err);
-        alert('Network error sending cancel request.');
+        showToast('Network error sending cancel request.', 'error');
         cancelBtn.disabled = false;
         cancelBtn.innerText = '[Cancel]';
       }
@@ -840,7 +1078,10 @@ function renderVideos(filterType = null) {
     const activeJob = activeJobsMap.get(video.url);
     if (activeJob) {
       card.setAttribute('data-job-id', activeJob.id || activeJob.jobId);
-      updateCardProgressUi(video.id, activeJob.status, activeJob.progress || 0, activeJob.error || '');
+      updateCardProgressUi(video.id, activeJob.status, activeJob.progress || 0, activeJob.error || '', {
+        downloadedBytes: activeJob.downloadedBytes,
+        totalBytes: activeJob.totalBytes
+      });
       pollJobStatus(activeJob.id || activeJob.jobId, video.id);
     }
   });
@@ -857,22 +1098,98 @@ function removeVideoFromStorage(id) {
 }
 
 // --- Download Executor & Poller ---
-async function triggerDownload(video, cardElement, matchedProfile, downloadButton) {
+function buildDownloadOptions(video, cardElement, matchedProfile) {
   const filename = cardElement.querySelector('.filename-input').value.trim();
   const origin = cardElement.querySelector('.header-origin').value.trim();
   const referer = cardElement.querySelector('.header-referer').value.trim();
   const userAgent = cardElement.querySelector('.header-ua').value.trim();
 
-  // Resolve headers hierarchy: override card -> matched profile -> raw headers -> default settings
   const finalOrigin = origin || (matchedProfile && matchedProfile.defaultOrigin) || video.headers.origin || '';
   const finalReferer = referer || (matchedProfile && matchedProfile.defaultReferer) || video.headers.referer || '';
   const finalUA = userAgent || (matchedProfile && matchedProfile.defaultUserAgent) || video.headers.userAgent || activeSettings.defaultUa;
-
-  // Resolve cookies: matched profile -> global fallback -> empty
   const finalCookies = matchedProfile ? (matchedProfile.cookiesText || '') : (globalCookiesText || '');
 
+  return {
+    url: video.url,
+    outputFilename: filename,
+    referer: finalReferer,
+    origin: finalOrigin,
+    userAgent: finalUA,
+    cookiesContent: finalCookies,
+    target: activeSettings.tgTarget,
+    quality: activeSettings.quality,
+    extraFlags: activeSettings.ytdlpFlags,
+    pageUrl: video.pageUrl
+  };
+}
+
+async function fetchVideoInfo(video, cardElement, matchedProfile) {
+  const sizeLabel = cardElement.querySelector('.video-size-value');
+  const sizeBtn = cardElement.querySelector('.check-size-btn');
+  const cached = videoInfoCache.get(video.url);
+  if (cached) {
+    sizeLabel.textContent = cached.totalBytes ? formatBytes(cached.totalBytes) : 'Size unavailable';
+    return cached;
+  }
+
+  sizeBtn.disabled = true;
+  sizeBtn.textContent = 'Checking...';
+  sizeLabel.textContent = 'Checking...';
+
+  try {
+    const response = await fetch(`${activeSettings.backendUrl}/download/info`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': activeSettings.apiKey
+      },
+      body: JSON.stringify(buildDownloadOptions(video, cardElement, matchedProfile))
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || 'Could not read video size.');
+    }
+    videoInfoCache.set(video.url, data);
+    sizeLabel.textContent = data.totalBytes ? formatBytes(data.totalBytes) : 'Size unavailable';
+    return data;
+  } catch (err) {
+    sizeLabel.textContent = 'Size unavailable';
+    showToast(err.message || 'Could not read video size.', 'warning');
+    return null;
+  } finally {
+    sizeBtn.disabled = false;
+    sizeBtn.textContent = 'Check size';
+  }
+}
+
+async function triggerDownload(video, cardElement, matchedProfile, downloadButton) {
+  if (!telegramLoggedIn) {
+    await checkTelegramStatus();
+  }
+  if (!telegramLoggedIn) {
+    showDialog({
+      title: 'Telegram Login Required',
+      message: 'Please sign in to Telegram before starting a download.',
+      detail: 'The backend can download the video, but upload will fail without an authenticated Telegram session.',
+      confirmText: 'OK',
+      hideCancel: true,
+      variant: 'warning'
+    });
+    return;
+  }
+  if (!activeSettings.tgTarget) {
+    showToast('Choose a Telegram target chat or channel first.', 'warning');
+    return;
+  }
+
+  const info = await fetchVideoInfo(video, cardElement, matchedProfile);
+  const options = buildDownloadOptions(video, cardElement, matchedProfile);
+  if (info && info.totalBytes) {
+    options.totalBytes = info.totalBytes;
+  }
+
   // Disable UI components in the card
-  updateCardProgressUi(video.id, 'Queued', 0);
+  updateCardProgressUi(video.id, 'Queued', 0, '', { totalBytes: options.totalBytes });
 
   try {
     const response = await fetch(`${activeSettings.backendUrl}/download`, {
@@ -881,22 +1198,11 @@ async function triggerDownload(video, cardElement, matchedProfile, downloadButto
         'Content-Type': 'application/json',
         'X-API-Key': activeSettings.apiKey
       },
-      body: JSON.stringify({
-        url: video.url,
-        outputFilename: filename,
-        referer: finalReferer,
-        origin: finalOrigin,
-        userAgent: finalUA,
-        cookiesContent: finalCookies,
-        target: activeSettings.tgTarget,
-        quality: activeSettings.quality,
-        extraFlags: activeSettings.ytdlpFlags,
-        pageUrl: video.pageUrl
-      })
+      body: JSON.stringify(options)
     });
 
     const data = await response.json();
-    
+
     if (!response.ok || data.error) {
       updateCardProgressUi(video.id, 'Error', 0, data.error || 'Failed to trigger download API.');
       return;
@@ -911,7 +1217,9 @@ async function triggerDownload(video, cardElement, matchedProfile, downloadButto
     activeJobsMap.set(video.url, {
       id: data.jobId,
       status: 'queued',
-      progress: 0
+      progress: 0,
+      totalBytes: options.totalBytes || null,
+      downloadedBytes: 0
     });
 
     // Start polling status
@@ -942,12 +1250,15 @@ function pollJobStatus(jobId, videoId) {
 
       const data = await response.json();
 
-      updateCardProgressUi(videoId, data.status, data.progress || 0, data.error || '');
+      updateCardProgressUi(videoId, data.status, data.progress || 0, data.error || '', {
+        downloadedBytes: data.downloadedBytes,
+        totalBytes: data.totalBytes
+      });
 
       if (data.status === 'done' || data.status === 'error') {
         clearInterval(interval);
         activePolls.delete(jobId);
-        
+
         // Remove from activeJobsMap
         for (const [url, job] of activeJobsMap.entries()) {
           if ((job.id || job.jobId) === jobId) {
@@ -986,7 +1297,7 @@ async function pingBackend() {
     const res = await fetch(`${activeSettings.backendUrl}/ping`, {
       signal: controller.signal
     });
-    
+
     clearTimeout(timeoutId);
     clearTimeout(wakeTimer);
 
@@ -1011,7 +1322,7 @@ async function checkTelegramStatus() {
     const res = await fetch(`${activeSettings.backendUrl}/telegram/status`, {
       headers: { 'X-API-Key': activeSettings.apiKey }
     });
-    
+
     if (!res.ok) return;
 
     const data = await res.json();
@@ -1025,10 +1336,11 @@ async function checkTelegramStatus() {
 }
 
 function updateTelegramUi(loggedIn, username) {
+  telegramLoggedIn = !!loggedIn;
   const card = elements.tgStatusCard;
   const badge = elements.tgStatusBadge;
   const txt = elements.tgStatusText;
-  
+
   // Hide all panels
   elements.authStepPhone.classList.remove('active');
   elements.authStepOtp.classList.remove('active');
@@ -1040,14 +1352,14 @@ function updateTelegramUi(loggedIn, username) {
     badge.className = 'badge badge-success';
     badge.innerText = '🟢 Logged in';
     txt.innerHTML = `Signed into Telegram user account: <strong>@${username}</strong>`;
-    
+
     elements.authStepLogged.classList.add('active');
   } else {
     card.className = 'tg-status-card logged-out';
     badge.className = 'badge badge-danger';
     badge.innerText = '🔴 Not logged in';
     txt.innerText = 'Your backend is not signed into Telegram. Complete the form below to connect your account.';
-    
+
     elements.authStepPhone.classList.add('active');
   }
 }
@@ -1059,7 +1371,7 @@ function setupTelegramWizardListeners() {
   elements.tgSendOtpBtn.addEventListener('click', async () => {
     const phone = elements.tgPhone.value.trim();
     if (!phone) {
-      alert('Please enter your phone number.');
+      showToast('Please enter your phone number.', 'warning');
       return;
     }
 
@@ -1078,21 +1390,21 @@ function setupTelegramWizardListeners() {
 
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert(data.error || 'Failed to send OTP.');
+        showToast(data.error || 'Failed to send OTP.', 'error');
         elements.tgSendOtpBtn.disabled = false;
         elements.tgSendOtpBtn.innerText = 'Send OTP Code';
         return;
       }
 
       activePhoneCodeHash = data.phoneCodeHash;
-      
+
       // Shift UI to step 2 (OTP code input)
       elements.authStepPhone.classList.remove('active');
       elements.authStepOtp.classList.add('active');
       elements.tgOtp.value = '';
 
     } catch (e) {
-      alert('Failed to send OTP. Server connection error.');
+      showToast('Failed to send OTP. Server connection error.', 'error');
     } finally {
       elements.tgSendOtpBtn.disabled = false;
       elements.tgSendOtpBtn.innerText = 'Send OTP Code';
@@ -1104,7 +1416,7 @@ function setupTelegramWizardListeners() {
     const phone = elements.tgPhone.value.trim();
     const code = elements.tgOtp.value.trim();
     if (!code) {
-      alert('Please enter the OTP verification code.');
+      showToast('Please enter the OTP verification code.', 'warning');
       return;
     }
 
@@ -1127,7 +1439,7 @@ function setupTelegramWizardListeners() {
 
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert(data.error || 'Invalid OTP code.');
+        showToast(data.error || 'Invalid OTP code.', 'error');
         elements.tgVerifyOtpBtn.disabled = false;
         elements.tgVerifyOtpBtn.innerText = 'Verify Code';
         return;
@@ -1145,7 +1457,7 @@ function setupTelegramWizardListeners() {
       }
 
     } catch (e) {
-      alert('Verify code request failed.');
+      showToast('Verify code request failed.', 'error');
     } finally {
       elements.tgVerifyOtpBtn.disabled = false;
       elements.tgVerifyOtpBtn.innerText = 'Verify Code';
@@ -1156,7 +1468,7 @@ function setupTelegramWizardListeners() {
   elements.tgVerify2faBtn.addEventListener('click', async () => {
     const password = elements.tgPassword.value;
     if (!password) {
-      alert('Please enter your 2FA password.');
+      showToast('Please enter your 2FA password.', 'warning');
       return;
     }
 
@@ -1175,14 +1487,14 @@ function setupTelegramWizardListeners() {
 
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert(data.error || 'Invalid 2FA password.');
+        showToast(data.error || 'Invalid 2FA password.', 'error');
         return;
       }
 
       await checkTelegramStatus();
 
     } catch (e) {
-      alert('2FA verification request failed.');
+      showToast('2FA verification request failed.', 'error');
     } finally {
       elements.tgVerify2faBtn.disabled = false;
       elements.tgVerify2faBtn.innerText = 'Verify Password';
@@ -1191,7 +1503,14 @@ function setupTelegramWizardListeners() {
 
   // Log Out
   elements.tgLogoutBtn.addEventListener('click', async () => {
-    if (!confirm('Log out from Telegram user session on the backend?')) return;
+    const ok = await showDialog({
+      title: 'Sign Out of Telegram?',
+      message: 'This will disconnect the backend Telegram session. Downloads can still be queued, but uploads will fail until you sign in again.',
+      confirmText: 'Sign Out',
+      cancelText: 'Stay Signed In',
+      variant: 'danger'
+    });
+    if (!ok) return;
 
     elements.tgLogoutBtn.disabled = true;
     elements.tgLogoutBtn.innerText = 'Logging out...';
@@ -1201,12 +1520,12 @@ function setupTelegramWizardListeners() {
         method: 'POST',
         headers: { 'X-API-Key': activeSettings.apiKey }
       });
-      
+
       if (res.ok) {
         updateTelegramUi(false, null);
       }
     } catch (e) {
-      alert('Logout request failed.');
+      showToast('Logout request failed.', 'error');
     } finally {
       elements.tgLogoutBtn.disabled = false;
       elements.tgLogoutBtn.innerText = 'Sign Out of Telegram';
@@ -1228,7 +1547,7 @@ function setupTelegramWizardListeners() {
 // --- History & Logs (Tab 4) ---
 async function fetchHistory() {
   elements.historyList.innerHTML = '<div style="text-align:center; padding: 20px; font-size: 13px; color: var(--text-muted);">Fetching download logs...</div>';
-  
+
   try {
     const res = await fetch(`${activeSettings.backendUrl}/jobs?limit=25`, {
       headers: { 'X-API-Key': activeSettings.apiKey }
@@ -1245,7 +1564,7 @@ async function fetchHistory() {
     console.error('Failed to fetch download logs:', err);
     elements.historyList.innerHTML = `
       <div class="empty-state" style="border-color: var(--status-red);">
-        <div class="empty-icon" style="color: var(--status-red);">⚠️</div>
+        <div class="empty-icon" style="color: var(--status-red);">!</div>
         <h3>Failed to load logs</h3>
         <p>Could not fetch history from backend. Ensure settings and API keys are correct.</p>
       </div>
@@ -1280,18 +1599,33 @@ function renderHistory(jobs) {
 
     const statusClass = `status-${job.status.toLowerCase()}`;
     const displayName = job.outputName || job.filename || 'Unnamed video';
+    const progress = Math.max(0, Math.min(100, Number(job.progress || 0)));
+    const transferredText = job.totalBytes
+      ? `${formatBytes(job.downloadedBytes)} / ${formatBytes(job.totalBytes)}`
+      : '';
 
     card.innerHTML = `
       <div class="history-title" title="${displayName}">${displayName}</div>
       <div style="font-size: 10px; color: var(--text-dark); word-break: break-all; margin-top: 2px;">URL: ${job.url}</div>
-      
-      ${job.error ? `<div class="history-error-msg">❌ ${job.error}</div>` : ''}
+
+      ${job.error ? `<div class="history-error-msg">${job.error}</div>` : ''}
+
+
+      <div class="history-progress">
+        <div class="progress-info">
+          <span class="history-progress-text">${transferredText}</span>
+          <span class="history-progress-text">${progress}%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" style="width: ${progress}%;"></div>
+        </div>
+      </div>
 
       <div class="history-meta">
         <span>${cleanDate}</span>
         <span class="history-status-badge ${statusClass}">${job.status}</span>
       </div>
-      
+
       ${job.status === 'error' || job.status === 'done' ? `
         <div class="mt-1" style="display:flex; justify-content: flex-end;">
           <button class="btn btn-secondary btn-sm retrigger-btn" style="padding: 3px 8px; font-size: 10px;">Re-download</button>
@@ -1327,7 +1661,7 @@ async function retriggerJob(job) {
 
   // Switch to videos tab
   document.querySelector('[data-tab="tab-videos"]').click();
-  
+
   // Save/prepend this video to local storage so it renders in Tab 1
   chrome.storage.local.get({ detectedVideos: [] }, (res) => {
     let videos = res.detectedVideos;

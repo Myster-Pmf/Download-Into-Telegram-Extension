@@ -106,6 +106,7 @@ function downloadVideo(jobId, options, progressCallback) {
     const child = spawn('yt-dlp', args, { windowsHide: true });
     let errorOutput = '';
     let lastProgress = 0;
+    let lastTotalBytes = 0;
 
     // Store reference for cancellation
     activeProcesses.set(jobId, child);
@@ -127,10 +128,16 @@ function downloadVideo(jobId, options, progressCallback) {
         const percentMatch = line.match(/(\d+\.?\d*)%/);
         if (percentMatch) {
           const percent = Math.min(100, Math.round(parseFloat(percentMatch[1])));
-          if (percent > lastProgress) {
+          const previousTotalBytes = lastTotalBytes;
+          const sizeMatch = line.match(/of\s+~?([\d.]+)\s*([KMGT]?i?B)/i);
+          if (sizeMatch) {
+            lastTotalBytes = parseSizeToBytes(sizeMatch[1], sizeMatch[2]) || lastTotalBytes;
+          }
+          const downloadedBytes = lastTotalBytes ? Math.round((percent / 100) * lastTotalBytes) : 0;
+          if (percent > lastProgress || lastTotalBytes !== previousTotalBytes) {
             lastProgress = percent;
             if (progressCallback) {
-              progressCallback(percent);
+              progressCallback({ percent, downloadedBytes, totalBytes: lastTotalBytes || null });
             }
           }
         }
@@ -145,7 +152,7 @@ function downloadVideo(jobId, options, progressCallback) {
             if (fragPercent > lastProgress) {
               lastProgress = fragPercent;
               if (progressCallback) {
-                progressCallback(fragPercent);
+                progressCallback({ percent: fragPercent, downloadedBytes: 0, totalBytes: null });
               }
             }
           }
@@ -201,6 +208,96 @@ function downloadVideo(jobId, options, progressCallback) {
   });
 }
 
+function parseSizeToBytes(value, unit) {
+  const num = parseFloat(value);
+  if (!Number.isFinite(num)) return null;
+  const normalized = String(unit || '').toLowerCase();
+  const powers = {
+    b: 0,
+    kb: 1,
+    kib: 1,
+    mb: 2,
+    mib: 2,
+    gb: 3,
+    gib: 3,
+    tb: 4,
+    tib: 4
+  };
+  const power = powers[normalized];
+  if (power === undefined) return null;
+  return Math.round(num * Math.pow(1024, power));
+}
+
+function getVideoInfo(options) {
+  return new Promise((resolve, reject) => {
+    const {
+      url,
+      referer,
+      origin,
+      userAgent,
+      cookiesContent,
+      quality,
+      extraFlags
+    } = options;
+
+    if (!url) {
+      return reject(new Error('Missing video URL.'));
+    }
+
+    let cookieFilePath = null;
+    const tempId = `info_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    if (cookiesContent && cookiesContent.trim().length > 0) {
+      cookieFilePath = path.join(os.tmpdir(), `cookies_${tempId}.txt`);
+      fs.writeFileSync(cookieFilePath, cookiesContent);
+    }
+
+    const args = ['--no-update', '--dump-json', '--skip-download'];
+    if (cookieFilePath) args.push('--cookies', cookieFilePath);
+    if (referer) args.push('--add-header', `Referer: ${referer}`);
+    if (origin) args.push('--add-header', `Origin: ${origin}`);
+    if (userAgent) args.push('--user-agent', userAgent);
+    args.push(...getQualityFlags(quality));
+    if (extraFlags && extraFlags.trim().length > 0) {
+      args.push(...extraFlags.split(/\s+/).filter(Boolean));
+    }
+    args.push(url);
+
+    const child = spawn('yt-dlp', args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    const cleanup = () => {
+      if (cookieFilePath && fs.existsSync(cookieFilePath)) {
+        try { fs.unlinkSync(cookieFilePath); } catch (e) {}
+      }
+    };
+
+    child.stdout.on('data', data => { stdout += data.toString(); });
+    child.stderr.on('data', data => { stderr += data.toString(); });
+    child.on('error', (err) => {
+      cleanup();
+      reject(err);
+    });
+    child.on('close', (code) => {
+      cleanup();
+      if (code !== 0) {
+        return reject(new Error(`yt-dlp info exited with code ${code}. ${stderr.substring(0, 300)}`));
+      }
+      try {
+        const info = JSON.parse(stdout.trim().split('\n').pop());
+        const totalBytes = info.filesize || info.filesize_approx || null;
+        resolve({
+          title: info.title || null,
+          ext: info.ext || null,
+          duration: info.duration || null,
+          totalBytes
+        });
+      } catch (e) {
+        reject(new Error(`Could not parse yt-dlp metadata: ${e.message}`));
+      }
+    });
+  });
+}
+
 function cancelDownload(jobId) {
   const child = activeProcesses.get(jobId);
   if (child) {
@@ -214,5 +311,6 @@ function cancelDownload(jobId) {
 
 module.exports = {
   downloadVideo,
+  getVideoInfo,
   cancelDownload
 };
