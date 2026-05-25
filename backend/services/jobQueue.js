@@ -78,23 +78,36 @@ async function runJob(job) {
       caption,
       (progressFloat) => {
         const percent = Math.min(99, Math.round(progressFloat * 100)); // Cap upload progress visual below 100 until fully completed
-        db.updateJob(jobId, { progress: percent });
+        const cur = db.getJob(jobId);
+        if (cur && cur.status === 'uploading') {
+          db.updateJob(jobId, { progress: percent });
+        }
       }
     );
 
     // 6. Complete task
-    db.updateJob(jobId, { status: 'done', progress: 100 });
-    console.log(`[Queue] Job ${jobId} finished successfully.`);
+    const currentJob = db.getJob(jobId);
+    if (currentJob && currentJob.status === 'uploading') {
+      db.updateJob(jobId, { status: 'done', progress: 100 });
+      console.log(`[Queue] Job ${jobId} finished successfully.`);
+    } else {
+      console.log(`[Queue] Job ${jobId} was cancelled during upload. Skipping success completion.`);
+    }
 
     // 7. Remove local downloaded files
     cleanupJobFolder(jobId);
 
   } catch (err) {
     console.error(`[Queue] Job ${jobId} encountered an error:`, err);
-    db.updateJob(jobId, { 
-      status: 'error', 
-      error: err.message || 'An unexpected error occurred during processing.' 
-    });
+    
+    // Only update to generic error if the job isn't already marked as error/cancelled
+    const currentJob = db.getJob(jobId);
+    if (!currentJob || currentJob.status !== 'error') {
+      db.updateJob(jobId, { 
+        status: 'error', 
+        error: err.message || 'An unexpected error occurred during processing.' 
+      });
+    }
     // Ensure directory is cleaned
     cleanupJobFolder(jobId);
   }

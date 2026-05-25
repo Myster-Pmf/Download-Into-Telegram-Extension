@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const bigInt = require('big-integer');
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
+const { Api } = require('telegram/tl');
+const { computeCheck } = require('telegram/Password');
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '../data');
 const SESSION_PATH = path.join(DATA_DIR, 'session.json');
@@ -140,22 +142,33 @@ async function verifyOtp(phone, phoneCodeHash, code) {
     const phoneToUse = phone || tempLoginState.phone;
     const hashToUse = phoneCodeHash || tempLoginState.phoneCodeHash;
 
-    const user = await client.signIn({
-      phoneNumber: phoneToUse,
-      phoneCodeHash: hashToUse,
-      phoneCode: code
-    });
+    // Use raw MTProto Api.auth.SignIn (GramJS 2.x has no client.signIn)
+    const result = await client.invoke(
+      new Api.auth.SignIn({
+        phoneNumber: phoneToUse,
+        phoneCodeHash: hashToUse,
+        phoneCode: code
+      })
+    );
 
-    // Save session if successfully logged in
+    // Save session on success
     const sessionString = client.session.save();
     saveSessionString(sessionString);
     return { status: 'success' };
   } catch (error) {
-    if (error.name === 'SessionPasswordNeededError') {
-      // 2FA required. Return hint
-      return { 
-        status: '2fa_required', 
-        hint: error.hint || 'No hint provided by Telegram' 
+    // GramJS raises an RPC error with errorMessage 'SESSION_PASSWORD_NEEDED'
+    if (error.errorMessage === 'SESSION_PASSWORD_NEEDED') {
+      // Fetch the 2FA password hint from Telegram
+      let hint = 'No hint available';
+      try {
+        const srpResult = await client.invoke(new Api.account.GetPassword());
+        hint = srpResult.hint || hint;
+      } catch (e) {
+        console.error('[Telegram] Failed to fetch 2FA hint:', e);
+      }
+      return {
+        status: '2fa_required',
+        hint: hint
       };
     }
     throw error;
@@ -164,21 +177,24 @@ async function verifyOtp(phone, phoneCodeHash, code) {
 
 async function verify2fa(password) {
   const client = await getClient();
-  const phoneToUse = tempLoginState.phone;
 
-  await client.signIn({
-    phoneNumber: phoneToUse,
-    password: password
-  });
+  // 1. Fetch the SRP parameters from Telegram
+  const srpResult = await client.invoke(new Api.account.GetPassword());
 
-  // Save session if successfully logged in
+  // 2. Compute the SRP check using the user's password
+  const srpCheck = await computeCheck(srpResult, password);
+
+  // 3. Submit the password via MTProto
+  await client.invoke(new Api.auth.CheckPassword({ password: srpCheck }));
+
+  // 4. Save session on success
   const sessionString = client.session.save();
   saveSessionString(sessionString);
 
   const me = await client.getMe();
-  return { 
-    status: 'success', 
-    username: me.username || me.firstName || 'User' 
+  return {
+    status: 'success',
+    username: me.username || me.firstName || 'User'
   };
 }
 

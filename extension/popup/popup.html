@@ -55,14 +55,20 @@
       
       <!-- Tab 1: Detected Videos -->
       <section id="tab-videos" class="tab-pane active">
-        <div class="action-bar">
+        <div class="action-bar" style="flex-wrap: wrap; gap: 8px;">
           <div class="filters">
             <button class="filter-btn active" data-filter="all">All</button>
             <button class="filter-btn" data-filter="HLS">HLS</button>
             <button class="filter-btn" data-filter="DASH">DASH</button>
             <button class="filter-btn" data-filter="MP4">MP4</button>
           </div>
-          <button id="clear-videos-btn" class="btn btn-secondary btn-sm">Clear All</button>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <label class="scope-toggle" style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); cursor: pointer; user-select: none; margin-bottom: 0;">
+              <input type="checkbox" id="scope-tab-checkbox" checked style="width: auto; margin: 0; cursor: pointer; height: auto; padding: 0;">
+              <span>Current Site Only</span>
+            </label>
+            <button id="clear-videos-btn" class="btn btn-secondary btn-sm">Clear All</button>
+          </div>
         </div>
 
         <div id="videos-list" class="cards-list">

@@ -115,77 +115,146 @@ const elements = {
   newProfileBtn: document.getElementById('new-profile-btn'),
   
   clearVideosBtn: document.getElementById('clear-videos-btn'),
-  refreshHistoryBtn: document.getElementById('refresh-history-btn')
+  refreshHistoryBtn: document.getElementById('refresh-history-btn'),
+  scopeTabCheckbox: document.getElementById('scope-tab-checkbox')
 };
+
+let activeTabUrl = '';
+let activeJobsMap = new Map();
+
+function getDomain(urlStr) {
+  try {
+    const url = new URL(urlStr);
+    return url.hostname;
+  } catch (e) {
+    return '';
+  }
+}
+
+async function loadActiveJobs() {
+  try {
+    const response = await fetch(`${activeSettings.backendUrl}/jobs?limit=25`, {
+      headers: {
+        'X-API-Key': activeSettings.apiKey
+      }
+    });
+    if (response.ok) {
+      const jobs = await response.json();
+      activeJobsMap.clear();
+      const active = jobs.filter(j => j.status === 'queued' || j.status === 'downloading' || j.status === 'uploading');
+      active.forEach(job => {
+        activeJobsMap.set(job.url, job);
+      });
+    }
+  } catch (e) {
+    console.error('Failed to load active jobs:', e);
+  }
+}
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
-  setupTabs();
-  await loadSettings();
-  await loadSiteProfiles();
-  await refreshDetectedVideos();
-  await pingBackend();
-  await checkTelegramStatus();
-
-  // Listen for storage updates to refresh video list in real-time
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && changes.detectedVideos) {
-      detectedVideosList = changes.detectedVideos.newValue || [];
-      renderVideos();
+  chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+    if (tabs && tabs[0]) {
+      activeTabUrl = tabs[0].url;
     }
-  });
 
-  // Settings form submission
-  elements.settingsForm.addEventListener('submit', saveSettings);
+    // 1. Initial local UI setup (fast storage reads)
+    setupTabs();
+    await loadSettings(); // Restores sync settings instantly
+    await loadSiteProfiles(); // Restores local site profiles instantly
+    
+    // 2. Render detected videos list immediately from local storage (extremely fast, zero blocking!)
+    await refreshDetectedVideos();
 
-  // Settings form target dropdown change toggle
-  elements.settTgTarget.addEventListener('change', () => {
-    if (elements.settTgTarget.value === 'custom') {
-      elements.settTgTargetCustom.style.display = 'block';
-    } else {
-      elements.settTgTargetCustom.style.display = 'none';
-    }
-  });
+    // 3. Perform network checks and async updates in the background (non-blocking)
+    (async () => {
+      // Refresh chats target list in background
+      if (activeSettings.tgTarget) {
+        fetchTelegramChats(activeSettings.tgTarget);
+      }
+      
+      // Ping backend
+      pingBackend();
+      
+      // Check Telegram auth status
+      await checkTelegramStatus();
 
-  // Settings form refresh chats click
-  elements.refreshChatsBtn.addEventListener('click', async () => {
-    elements.refreshChatsBtn.disabled = true;
-    elements.refreshChatsBtn.innerText = '⏳';
-    await fetchTelegramChats(activeSettings.tgTarget);
-    elements.refreshChatsBtn.disabled = false;
-    elements.refreshChatsBtn.innerText = '🔄';
-  });
+      // Fetch active running jobs
+      await loadActiveJobs();
+      
+      // Re-render videos to attach progress tracking bars for running jobs if any exist
+      if (activeJobsMap.size > 0) {
+        renderVideos();
+      }
+    })();
 
-  // Clear videos
-  elements.clearVideosBtn.addEventListener('click', () => {
-    chrome.storage.local.set({ detectedVideos: [] }, () => {
-      detectedVideosList = [];
-      renderVideos();
+    // Listen for storage updates to refresh video list in real-time
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes.detectedVideos) {
+        detectedVideosList = changes.detectedVideos.newValue || [];
+        renderVideos();
+      }
     });
+
+    // Wire scoping checkbox
+    if (elements.scopeTabCheckbox) {
+      elements.scopeTabCheckbox.addEventListener('change', () => {
+        renderVideos();
+      });
+    }
+
+    // Settings form submission
+    elements.settingsForm.addEventListener('submit', saveSettings);
+
+    // Settings form target dropdown change toggle
+    elements.settTgTarget.addEventListener('change', () => {
+      if (elements.settTgTarget.value === 'custom') {
+        elements.settTgTargetCustom.style.display = 'block';
+      } else {
+        elements.settTgTargetCustom.style.display = 'none';
+      }
+    });
+
+    // Settings form refresh chats click
+    elements.refreshChatsBtn.addEventListener('click', async () => {
+      elements.refreshChatsBtn.disabled = true;
+      elements.refreshChatsBtn.innerText = '⏳';
+      await fetchTelegramChats(activeSettings.tgTarget);
+      elements.refreshChatsBtn.disabled = false;
+      elements.refreshChatsBtn.innerText = '🔄';
+    });
+
+    // Clear videos
+    elements.clearVideosBtn.addEventListener('click', () => {
+      chrome.storage.local.set({ detectedVideos: [] }, () => {
+        detectedVideosList = [];
+        renderVideos();
+      });
+    });
+
+    // Refresh history
+    elements.refreshHistoryBtn.addEventListener('click', fetchHistory);
+
+    // Setup profile modals
+    elements.newProfileBtn.addEventListener('click', () => openProfileModal());
+    elements.closeModalBtn.addEventListener('click', closeProfileModal);
+    elements.profileForm.addEventListener('submit', saveCustomProfile);
+
+    // Cookie files readers
+    setupCookieFileReaders();
+    
+    // Save Global Profile
+    elements.saveGlobalProfileBtn.addEventListener('click', saveGlobalProfile);
+    elements.clearGlobalCookies.addEventListener('click', () => {
+      elements.globalCookies.value = '';
+    });
+
+    // Telegram auth listeners
+    setupTelegramWizardListeners();
+    
+    // History tab click auto-fetch
+    document.querySelector('[data-tab="tab-history"]').addEventListener('click', fetchHistory);
   });
-
-  // Refresh history
-  elements.refreshHistoryBtn.addEventListener('click', fetchHistory);
-
-  // Setup profile modals
-  elements.newProfileBtn.addEventListener('click', () => openProfileModal());
-  elements.closeModalBtn.addEventListener('click', closeProfileModal);
-  elements.profileForm.addEventListener('submit', saveCustomProfile);
-
-  // Cookie files readers
-  setupCookieFileReaders();
-  
-  // Save Global Profile
-  elements.saveGlobalProfileBtn.addEventListener('click', saveGlobalProfile);
-  elements.clearGlobalCookies.addEventListener('click', () => {
-    elements.globalCookies.value = '';
-  });
-
-  // Telegram auth listeners
-  setupTelegramWizardListeners();
-  
-  // History tab click auto-fetch
-  document.querySelector('[data-tab="tab-history"]').addEventListener('click', fetchHistory);
 });
 
 // --- Tab Setup ---
@@ -215,7 +284,7 @@ function setupTabs() {
 // --- Settings Operations ---
 async function loadSettings() {
   return new Promise((resolve) => {
-    chrome.storage.sync.get(DEFAULT_SETTINGS, async (items) => {
+    chrome.storage.sync.get(DEFAULT_SETTINGS, (items) => {
       activeSettings = items;
       
       elements.settBackendUrl.value = items.backendUrl;
@@ -224,8 +293,6 @@ async function loadSettings() {
       elements.settAutoMatch.value = items.autoMatch;
       elements.settDefaultUa.value = items.defaultUa;
       elements.settYtdlpFlags.value = items.ytdlpFlags;
-      
-      await fetchTelegramChats(items.tgTarget);
       
       resolve();
     });
@@ -507,12 +574,118 @@ async function refreshDetectedVideos() {
   });
 }
 
-function renderVideos(filterType = 'all') {
+function updateCardProgressUi(videoId, status, percent, errorMsg = '') {
+  const cardElement = document.getElementById(`card-${videoId}`);
+  if (!cardElement) return;
+
+  const statusLabel = cardElement.querySelector('.progress-status');
+  const percentLabel = cardElement.querySelector('.progress-percent');
+  const fill = cardElement.querySelector('.progress-bar-fill');
+  const downloadButton = cardElement.querySelector('.download-video-btn');
+  const filenameInput = cardElement.querySelector('.filename-input');
+  const removeBtn = cardElement.querySelector('.remove-video-btn');
+  const cancelBtn = cardElement.querySelector('.cancel-download-btn');
+
+  if (statusLabel) {
+    statusLabel.innerText = status;
+    statusLabel.className = `progress-status status-${status.toLowerCase()}`;
+  }
+  if (percentLabel) {
+    percentLabel.innerText = `${percent}%`;
+  }
+  if (fill) {
+    fill.style.width = `${percent}%`;
+  }
+
+  // Show progress container
+  const progContainer = cardElement.querySelector('.progress-container');
+  if (progContainer) {
+    progContainer.style.display = 'block';
+  }
+
+  if (status === 'error') {
+    if (percentLabel) percentLabel.innerText = 'Error';
+    
+    // Create or update error message node
+    let errNode = cardElement.querySelector('.card-error-text');
+    if (!errNode) {
+      errNode = document.createElement('div');
+      errNode.className = 'card-error-text';
+      errNode.style.color = 'var(--status-red)';
+      errNode.style.fontSize = '11px';
+      errNode.style.marginTop = '6px';
+      cardElement.appendChild(errNode);
+    }
+    errNode.innerText = errorMsg;
+    
+    if (downloadButton) {
+      downloadButton.disabled = false;
+      downloadButton.innerText = 'Retry Download';
+    }
+    if (filenameInput) filenameInput.disabled = false;
+    if (removeBtn) removeBtn.disabled = false;
+    if (cancelBtn) cancelBtn.style.display = 'none';
+
+  } else if (status === 'done') {
+    // Hide error node if any
+    const errNode = cardElement.querySelector('.card-error-text');
+    if (errNode) errNode.remove();
+
+    if (downloadButton) {
+      downloadButton.disabled = false;
+      downloadButton.innerText = '⬇ Download';
+    }
+    if (filenameInput) filenameInput.disabled = false;
+    if (removeBtn) removeBtn.disabled = false;
+    if (cancelBtn) cancelBtn.style.display = 'none';
+
+  } else {
+    // Queued, downloading, uploading
+    // Hide error node if any
+    const errNode = cardElement.querySelector('.card-error-text');
+    if (errNode) errNode.remove();
+
+    if (downloadButton) {
+      downloadButton.disabled = true;
+      downloadButton.innerText = 'Downloading...';
+    }
+    if (filenameInput) filenameInput.disabled = true;
+    if (removeBtn) removeBtn.disabled = true;
+    
+    if (cancelBtn) {
+      cancelBtn.style.display = 'inline-block';
+      cancelBtn.disabled = false;
+      cancelBtn.innerText = '[Cancel]';
+    }
+  }
+}
+
+function renderVideos(filterType = null) {
   elements.videosList.innerHTML = '';
   
+  if (!filterType) {
+    const activeFilterBtn = document.querySelector('.filter-btn.active');
+    filterType = activeFilterBtn ? activeFilterBtn.getAttribute('data-filter') : 'all';
+  }
+
+  const activeDomain = activeTabUrl ? getDomain(activeTabUrl) : '';
+  const scopeToCurrent = elements.scopeTabCheckbox ? elements.scopeTabCheckbox.checked : true;
+
   const filtered = detectedVideosList.filter(vid => {
-    if (filterType === 'all') return true;
-    return vid.type.toUpperCase() === filterType.toUpperCase();
+    // 1. Stream type filtering
+    if (filterType !== 'all' && vid.type.toUpperCase() !== filterType.toUpperCase()) {
+      return false;
+    }
+    
+    // 2. Domain-based filtering
+    if (scopeToCurrent && activeDomain) {
+      const vidDomain = getDomain(vid.pageUrl);
+      if (vidDomain !== activeDomain) {
+        return false;
+      }
+    }
+    
+    return true;
   });
 
   if (filtered.length === 0) {
@@ -520,7 +693,7 @@ function renderVideos(filterType = 'all') {
       <div class="empty-state">
         <div class="empty-icon">🎬</div>
         <h3>No streams captured</h3>
-        <p>No matches for filter "${filterType}".</p>
+        <p>No matches for current criteria.</p>
       </div>
     `;
     return;
@@ -586,9 +759,12 @@ function renderVideos(filterType = 'all') {
 
       <!-- Queue/Progress tracker -->
       <div class="progress-container">
-        <div class="progress-info">
+        <div class="progress-info" style="align-items: center; display: flex; justify-content: space-between;">
           <span class="progress-status status-queued">Queued</span>
-          <span class="progress-percent">0%</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="progress-percent">0%</span>
+            <button type="button" class="btn-link cancel-download-btn" style="color: var(--status-red); font-size: 10px; font-weight: bold; text-decoration: none; padding: 0;">[Cancel]</button>
+          </div>
         </div>
         <div class="progress-bar-bg">
           <div class="progress-bar-fill"></div>
@@ -624,7 +800,49 @@ function renderVideos(filterType = 'all') {
       triggerDownload(video, card, matchedProfile, e.target);
     });
 
+    // Wire Cancel Download action
+    card.querySelector('.cancel-download-btn').addEventListener('click', async () => {
+      const jobId = card.getAttribute('data-job-id');
+      if (!jobId) return;
+
+      const cancelBtn = card.querySelector('.cancel-download-btn');
+      cancelBtn.disabled = true;
+      cancelBtn.innerText = 'Cancelling...';
+
+      try {
+        const response = await fetch(`${activeSettings.backendUrl}/download/cancel`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': activeSettings.apiKey
+          },
+          body: JSON.stringify({ jobId })
+        });
+        const resData = await response.json();
+        if (resData.success) {
+          console.log(`Job ${jobId} successfully cancelled.`);
+        } else {
+          alert(`Could not cancel download: ${resData.message}`);
+          cancelBtn.disabled = false;
+          cancelBtn.innerText = '[Cancel]';
+        }
+      } catch (err) {
+        console.error('Failed to send cancel request:', err);
+        alert('Network error sending cancel request.');
+        cancelBtn.disabled = false;
+        cancelBtn.innerText = '[Cancel]';
+      }
+    });
+
     elements.videosList.appendChild(card);
+
+    // Check if there is an active running/queued job for this video
+    const activeJob = activeJobsMap.get(video.url);
+    if (activeJob) {
+      card.setAttribute('data-job-id', activeJob.id || activeJob.jobId);
+      updateCardProgressUi(video.id, activeJob.status, activeJob.progress || 0, activeJob.error || '');
+      pollJobStatus(activeJob.id || activeJob.jobId, video.id);
+    }
   });
 }
 
@@ -654,45 +872,7 @@ async function triggerDownload(video, cardElement, matchedProfile, downloadButto
   const finalCookies = matchedProfile ? (matchedProfile.cookiesText || '') : (globalCookiesText || '');
 
   // Disable UI components in the card
-  downloadButton.disabled = true;
-  cardElement.querySelector('.filename-input').disabled = true;
-  cardElement.querySelector('.remove-video-btn').disabled = true;
-  
-  // Show progress tracker
-  const progContainer = cardElement.querySelector('.progress-container');
-  progContainer.style.display = 'block';
-
-  const updateProgressUi = (status, percent, errorMsg = '') => {
-    const statusLabel = cardElement.querySelector('.progress-status');
-    const percentLabel = cardElement.querySelector('.progress-percent');
-    const fill = cardElement.querySelector('.progress-bar-fill');
-
-    statusLabel.innerText = status;
-    statusLabel.className = `progress-status status-${status.toLowerCase()}`;
-    percentLabel.innerText = `${percent}%`;
-    fill.style.width = `${percent}%`;
-
-    if (status === 'error') {
-      percentLabel.innerText = 'Error';
-      // Create or update error message node
-      let errNode = cardElement.querySelector('.card-error-text');
-      if (!errNode) {
-        errNode = document.createElement('div');
-        errNode.className = 'card-error-text';
-        errNode.style.color = 'var(--status-red)';
-        errNode.style.fontSize = '11px';
-        errNode.style.marginTop = '6px';
-        cardElement.appendChild(errNode);
-      }
-      errNode.innerText = errorMsg;
-      
-      // Re-enable download button
-      downloadButton.disabled = false;
-      downloadButton.innerText = 'Retry Download';
-    }
-  };
-
-  updateProgressUi('Queued', 0);
+  updateCardProgressUi(video.id, 'Queued', 0);
 
   try {
     const response = await fetch(`${activeSettings.backendUrl}/download`, {
@@ -718,7 +898,7 @@ async function triggerDownload(video, cardElement, matchedProfile, downloadButto
     const data = await response.json();
     
     if (!response.ok || data.error) {
-      updateProgressUi('Error', 0, data.error || 'Failed to trigger download API.');
+      updateCardProgressUi(video.id, 'Error', 0, data.error || 'Failed to trigger download API.');
       return;
     }
 
@@ -726,18 +906,26 @@ async function triggerDownload(video, cardElement, matchedProfile, downloadButto
       console.warn('Backend warning:', data.warning);
     }
 
+    cardElement.setAttribute('data-job-id', data.jobId);
+
+    activeJobsMap.set(video.url, {
+      id: data.jobId,
+      status: 'queued',
+      progress: 0
+    });
+
     // Start polling status
-    pollJobStatus(data.jobId, updateProgressUi);
+    pollJobStatus(data.jobId, video.id);
 
   } catch (err) {
     console.error('Download trigger request failed:', err);
-    updateProgressUi('Error', 0, 'Could not connect to the backend server.');
+    updateCardProgressUi(video.id, 'Error', 0, 'Could not connect to the backend server.');
   }
 }
 
-function pollJobStatus(jobId, updateUiCallback) {
+function pollJobStatus(jobId, videoId) {
   if (activePolls.has(jobId)) {
-    clearInterval(activePolls.get(jobId));
+    return; // Already polling
   }
 
   const interval = setInterval(async () => {
@@ -754,16 +942,23 @@ function pollJobStatus(jobId, updateUiCallback) {
 
       const data = await response.json();
 
-      updateUiCallback(data.status, data.progress || 0, data.error || '');
+      updateCardProgressUi(videoId, data.status, data.progress || 0, data.error || '');
 
       if (data.status === 'done' || data.status === 'error') {
         clearInterval(interval);
         activePolls.delete(jobId);
+        
+        // Remove from activeJobsMap
+        for (const [url, job] of activeJobsMap.entries()) {
+          if ((job.id || job.jobId) === jobId) {
+            activeJobsMap.delete(url);
+            break;
+          }
+        }
       }
 
     } catch (err) {
       console.error(`Status polling failed for job ${jobId}:`, err);
-      // Don't kill polling immediately on transient request errors, but show a status update
     }
   }, 2000);
 

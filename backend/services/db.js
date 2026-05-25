@@ -112,8 +112,31 @@ function getRecentDuplicate(url) {
   ) || null;
 }
 
+function resetStuckJobs() {
+  try {
+    const raw = fs.readFileSync(DB_PATH, 'utf8');
+    const jobs = JSON.parse(raw);
+    let changed = false;
+    jobs.forEach(j => {
+      if (j.status === 'downloading' || j.status === 'uploading') {
+        j.status = 'error';
+        j.error = 'Server restarted while download was in progress.';
+        j.updated_at = new Date().toISOString();
+        changed = true;
+      }
+    });
+    if (changed) {
+      fs.writeFileSync(DB_PATH, JSON.stringify(jobs, null, 2));
+      console.log('[DB] Cleaned up stuck downloading/uploading jobs from previous session.');
+    }
+  } catch (e) {
+    console.error('[DB] Error resetting stuck jobs:', e);
+  }
+}
+
 // Automatically initialize when file is loaded
 initDb();
+resetStuckJobs();
 
 module.exports = {
   initDb,
