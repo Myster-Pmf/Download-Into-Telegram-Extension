@@ -1,11 +1,20 @@
 // VideoGrab - services/jobQueue.js
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const db = require('./db');
 const ytdlp = require('./ytdlp');
 const telegramClient = require('./telegramClient');
 
-let isWorking = false;
+const MAX_CONCURRENT_DOWNLOADS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '1', 10));
+const MAX_READY_UPLOADS = Math.max(1, parseInt(process.env.MAX_READY_UPLOADS || '2', 10));
+const TELEGRAM_MAX_UPLOAD_BYTES = Math.max(
+  50 * 1024 * 1024,
+  parseInt(process.env.TELEGRAM_MAX_UPLOAD_BYTES || String(1900 * 1024 * 1024), 10)
+);
+
+let activeDownloads = 0;
+let isUploading = false;
 let pollingInterval = null;
 
 function cleanupJobFolder(jobId) {
@@ -21,71 +30,219 @@ function cleanupJobFolder(jobId) {
   }
 }
 
-async function runJob(job) {
+function getReadyUploadCount() {
+  return db.getJobsByStatus('downloaded').length;
+}
+
+function getFileSize(filepath) {
+  return fs.statSync(filepath).size;
+}
+
+function formatBytes(bytes) {
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function runCommand(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: true });
+    let stderr = '';
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} exited with code ${code}. ${stderr.substring(0, 500)}`));
+      }
+    });
+  });
+}
+
+function getVideoDuration(filepath) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filepath
+    ];
+    const child = spawn('ffprobe', args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      const duration = parseFloat(stdout.trim());
+      if (code === 0 && Number.isFinite(duration) && duration > 0) {
+        resolve(duration);
+      } else {
+        reject(new Error(`Could not read video duration with ffprobe. ${stderr.substring(0, 300)}`));
+      }
+    });
+  });
+}
+
+function removeFiles(files) {
+  for (const file of files) {
+    try {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    } catch (e) {
+      console.warn(`[Queue] Failed to remove temporary split file ${file}: ${e.message}`);
+    }
+  }
+}
+
+async function splitVideoForTelegram(filepath, filename) {
+  const fileSize = getFileSize(filepath);
+  if (fileSize <= TELEGRAM_MAX_UPLOAD_BYTES) {
+    return [{ filepath, filename }];
+  }
+
+  const duration = await getVideoDuration(filepath);
+  const dir = path.dirname(filepath);
+  const ext = path.extname(filename) || '.mp4';
+  const baseName = path.basename(filename, ext);
+  let partCount = Math.max(2, Math.ceil((fileSize / TELEGRAM_MAX_UPLOAD_BYTES) * 1.1));
+  let lastOutputs = [];
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    removeFiles(lastOutputs);
+    const segmentTime = Math.max(60, Math.floor(duration / partCount));
+    const outputPattern = path.join(dir, `${baseName}.part%03d${ext}`);
+
+    console.log(`[Queue] Splitting ${filename} (${formatBytes(fileSize)}) into ~${partCount} playable parts.`);
+
+    await runCommand('ffmpeg', [
+      '-hide_banner',
+      '-y',
+      '-i', filepath,
+      '-map', '0',
+      '-c', 'copy',
+      '-f', 'segment',
+      '-segment_time', String(segmentTime),
+      '-reset_timestamps', '1',
+      '-avoid_negative_ts', 'make_zero',
+      outputPattern
+    ]);
+
+    const outputs = fs.readdirSync(dir)
+      .filter(file => file.startsWith(`${baseName}.part`) && file.endsWith(ext))
+      .sort()
+      .map(file => path.join(dir, file));
+
+    lastOutputs = outputs;
+    if (outputs.length === 0) {
+      throw new Error('ffmpeg did not create any split video parts.');
+    }
+
+    const largestPart = Math.max(...outputs.map(getFileSize));
+    if (largestPart <= TELEGRAM_MAX_UPLOAD_BYTES) {
+      return outputs.map((partPath) => ({
+        filepath: partPath,
+        filename: path.basename(partPath)
+      }));
+    }
+
+    partCount = Math.ceil(partCount * 1.5);
+  }
+
+  throw new Error(`Could not split ${filename} below Telegram upload threshold. Largest generated part was still too large.`);
+}
+
+async function runDownload(job) {
   const jobId = job.id;
-  console.log(`[Queue] Processing job ${jobId} | URL: ${job.url}`);
+  console.log(`[Queue] Downloading job ${jobId} | URL: ${job.url}`);
 
   try {
-    // 1. Shift state to downloading
-    db.updateJob(jobId, { status: 'downloading', progress: 0 });
+    db.updateJob(jobId, { status: 'downloading', progress: 0, error: null });
 
-    // 2. Execute yt-dlp download
     const result = await ytdlp.downloadVideo(jobId, job.payload, (progressPercent) => {
       db.updateJob(jobId, { progress: progressPercent });
     });
 
-    const filepath = result.filepath;
-    const filename = result.filename;
+    console.log(`[Queue] Download finished for job ${jobId}. Local file: ${result.filepath}`);
 
-    console.log(`[Queue] Download finished for job ${jobId}. Local file: ${filepath}`);
-
-    // Update DB with actual filename and shift state to uploading
-    db.updateJob(jobId, { 
-      filename: filename, 
-      status: 'uploading',
-      progress: 0 
+    db.updateJob(jobId, {
+      filename: result.filename,
+      filepath: result.filepath,
+      status: 'downloaded',
+      progress: 100
     });
+  } catch (err) {
+    console.error(`[Queue] Download job ${jobId} encountered an error:`, err);
 
-    // 3. Pre-check file size (max 2 GB Telegram user upload limit)
-    if (!fs.existsSync(filepath)) {
-      throw new Error('Downloaded file not found on disk after completion.');
+    const currentJob = db.getJob(jobId);
+    if (!currentJob || currentJob.status !== 'error') {
+      db.updateJob(jobId, {
+        status: 'error',
+        error: err.message || 'An unexpected error occurred during download.'
+      });
     }
-    const stats = fs.statSync(filepath);
-    const fileSizeInBytes = stats.size;
-    const fileSizeInGB = fileSizeInBytes / (1024 * 1024 * 1024);
+    cleanupJobFolder(jobId);
+  }
+}
 
-    if (fileSizeInBytes > 2 * 1024 * 1024 * 1024) {
-      throw new Error(`File size is ${fileSizeInGB.toFixed(2)} GB, which exceeds the Telegram user account limit of 2.0 GB.`);
+async function runUpload(job) {
+  const jobId = job.id;
+  console.log(`[Queue] Uploading job ${jobId} | File: ${job.filepath}`);
+
+  try {
+    db.updateJob(jobId, { status: 'uploading', progress: 0, error: null });
+
+    const filepath = job.filepath;
+    const filename = job.filename;
+
+    if (!filepath || !fs.existsSync(filepath)) {
+      throw new Error('Downloaded file not found on disk before upload.');
     }
 
-    // 4. Verify Telegram Login Status
     const authStatus = await telegramClient.checkLoginStatus();
     if (!authStatus.loggedIn) {
       throw new Error('Telegram client is not authenticated. Please log in through the extension popup settings.');
     }
 
-    // 5. Upload file via MTProto User account
     const dateStr = new Date().toISOString().split('T')[0];
-    const titleName = job.output_name || filename.replace(/\.[^/.]+$/, "");
-    const caption = `📹 ${titleName}\n🔗 ${job.page_url || 'N/A'}\n⏱ ${dateStr}`;
-    
+    const titleName = job.output_name || filename.replace(/\.[^/.]+$/, '');
     const target = job.payload.target || process.env.TELEGRAM_TARGET || '@mygroup';
 
-    await telegramClient.uploadFile(
-      target,
-      filepath,
-      filename,
-      caption,
-      (progressFloat) => {
-        const percent = Math.min(99, Math.round(progressFloat * 100)); // Cap upload progress visual below 100 until fully completed
-        const cur = db.getJob(jobId);
-        if (cur && cur.status === 'uploading') {
-          db.updateJob(jobId, { progress: percent });
-        }
-      }
-    );
+    const uploadParts = await splitVideoForTelegram(filepath, filename);
+    const totalParts = uploadParts.length;
 
-    // 6. Complete task
+    for (let index = 0; index < totalParts; index += 1) {
+      const part = uploadParts[index];
+      const partLabel = totalParts > 1 ? ` (${index + 1}/${totalParts})` : '';
+      const caption = `Video: ${titleName}${partLabel}\nSource: ${job.page_url || 'N/A'}\nDate: ${dateStr}`;
+
+      await telegramClient.uploadFile(
+        target,
+        part.filepath,
+        part.filename,
+        caption,
+        (progressFloat) => {
+          const partProgress = totalParts === 1
+            ? progressFloat
+            : (index + progressFloat) / totalParts;
+          const percent = Math.min(99, Math.round(partProgress * 100));
+          const cur = db.getJob(jobId);
+          if (cur && cur.status === 'uploading') {
+            db.updateJob(jobId, { progress: percent });
+          }
+        }
+      );
+    }
+
     const currentJob = db.getJob(jobId);
     if (currentJob && currentJob.status === 'uploading') {
       db.updateJob(jobId, { status: 'done', progress: 100 });
@@ -94,62 +251,69 @@ async function runJob(job) {
       console.log(`[Queue] Job ${jobId} was cancelled during upload. Skipping success completion.`);
     }
 
-    // 7. Remove local downloaded files
     cleanupJobFolder(jobId);
-
   } catch (err) {
-    console.error(`[Queue] Job ${jobId} encountered an error:`, err);
-    
-    // Only update to generic error if the job isn't already marked as error/cancelled
+    console.error(`[Queue] Upload job ${jobId} encountered an error:`, err);
+
     const currentJob = db.getJob(jobId);
     if (!currentJob || currentJob.status !== 'error') {
-      db.updateJob(jobId, { 
-        status: 'error', 
-        error: err.message || 'An unexpected error occurred during processing.' 
+      db.updateJob(jobId, {
+        status: 'error',
+        error: err.message || 'An unexpected error occurred during upload.'
       });
     }
-    // Ensure directory is cleaned
     cleanupJobFolder(jobId);
   }
 }
 
-function processQueue() {
-  if (isWorking) return;
+function startNextDownloads() {
+  while (activeDownloads < MAX_CONCURRENT_DOWNLOADS && getReadyUploadCount() < MAX_READY_UPLOADS) {
+    const nextJob = db.getNextJob();
+    if (!nextJob) return;
 
-  // Read currently running processes count (max concurrency = 1)
-  const runningCount = db.getRunningJobsCount();
-  const maxConcurrency = 1;
-
-  if (runningCount >= maxConcurrency) {
-    return;
+    activeDownloads += 1;
+    runDownload(nextJob)
+      .catch((err) => {
+        console.error(`[Queue] Critical download worker error on job ${nextJob.id}:`, err);
+      })
+      .finally(() => {
+        activeDownloads -= 1;
+        setImmediate(processQueue);
+      });
   }
+}
 
-  // Get next queued job (FIFO)
-  const nextJob = db.getNextJob();
-  if (!nextJob) {
-    return;
-  }
+function startNextUpload() {
+  if (isUploading) return;
 
-  isWorking = true;
-  runJob(nextJob)
+  const nextJob = db.getNextDownloadedJob();
+  if (!nextJob) return;
+
+  isUploading = true;
+  runUpload(nextJob)
     .catch((err) => {
-      console.error(`[Queue] Critical worker error on job ${nextJob.id}:`, err);
+      console.error(`[Queue] Critical upload worker error on job ${nextJob.id}:`, err);
     })
     .finally(() => {
-      isWorking = false;
-      // Recurse immediately to fetch next job in queue if any
+      isUploading = false;
       setImmediate(processQueue);
     });
 }
 
+function processQueue() {
+  startNextUpload();
+  startNextDownloads();
+}
+
 function startQueueWorker() {
   if (pollingInterval) return;
-  
+
   console.log('[Queue] Job queue worker started.');
-  // Poll queue database every 1.5 seconds
   pollingInterval = setInterval(processQueue, 1500);
+  setImmediate(processQueue);
 }
 
 module.exports = {
-  startQueueWorker
+  startQueueWorker,
+  cleanupJobFolder
 };

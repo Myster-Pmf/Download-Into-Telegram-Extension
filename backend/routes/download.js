@@ -4,6 +4,7 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const db = require('../services/db');
 const ytdlp = require('../services/ytdlp');
+const { cleanupJobFolder } = require('../services/jobQueue');
 
 router.post('/', (req, res) => {
   try {
@@ -109,10 +110,17 @@ router.post('/cancel', (req, res) => {
       return res.json({ success: true, message: 'Queued job cancelled.' });
     }
 
-    // 3. If uploading, mark as error/cancelled (the worker will ignore the success completion)
+    // 3. If downloaded but not uploaded yet, mark as cancelled and remove the local file
+    if (job.status === 'downloaded') {
+      db.updateJob(jobId, { status: 'error', error: 'Job cancelled by user before upload.' });
+      cleanupJobFolder(jobId);
+      return res.json({ success: true, message: 'Downloaded job cancelled and local file removed.' });
+    }
+
+    // 4. If uploading, mark as error/cancelled (the worker will ignore the success completion)
     if (job.status === 'uploading') {
       db.updateJob(jobId, { status: 'error', error: 'Upload was cancelled by user.' });
-      return res.json({ success: true, message: 'Upload cancellation signal sent.' });
+      return res.json({ success: true, message: 'Upload marked as cancelled. If Telegram already accepted the transfer, it may still finish.' });
     }
 
     res.json({ success: false, message: 'Could not cancel job in current state.' });

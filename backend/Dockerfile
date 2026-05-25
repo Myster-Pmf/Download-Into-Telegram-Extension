@@ -4,8 +4,8 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y python3 python3-pip ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp using pip with break-system-packages flag
-RUN pip3 install --break-system-packages yt-dlp
+# Install yt-dlp and AES-128 HLS support used by yt-dlp's native downloader.
+RUN pip3 install --break-system-packages yt-dlp pycryptodomex
 
 # Set working directory inside the container
 WORKDIR /app

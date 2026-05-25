@@ -26,6 +26,8 @@ function getQualityFlags(quality) {
       return ['-f', 'bestvideo[height<=480]+bestaudio/best[height<=480]'];
     case '360p':
       return ['-f', 'bestvideo[height<=360]+bestaudio/best[height<=360]'];
+    case '240p':
+      return ['-f', 'bestvideo[height<=240]+bestaudio/best[height<=240]'];
     case 'worst':
       return ['-f', 'worstvideo+worstaudio/worst'];
     case 'best':

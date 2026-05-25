@@ -47,6 +47,7 @@ function createJob(job) {
     status: 'queued',
     progress: 0,
     filename: null,
+    filepath: null,
     page_url: job.page_url || null,
     payload: job.payload || null,
     error: null,
@@ -95,6 +96,18 @@ function getNextJob() {
   return queued[0] || null;
 }
 
+function getNextDownloadedJob() {
+  const jobs = readJobs();
+  const downloaded = jobs
+    .filter(j => j.status === 'downloaded')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return downloaded[0] || null;
+}
+
+function getJobsByStatus(status) {
+  return readJobs().filter(j => j.status === status);
+}
+
 function getRunningJobsCount() {
   const jobs = readJobs();
   return jobs.filter(j => j.status === 'downloading' || j.status === 'uploading').length;
@@ -118,9 +131,15 @@ function resetStuckJobs() {
     const jobs = JSON.parse(raw);
     let changed = false;
     jobs.forEach(j => {
-      if (j.status === 'downloading' || j.status === 'uploading') {
+      if (j.status === 'downloading') {
+        j.status = 'queued';
+        j.progress = 0;
+        j.error = 'Server restarted while download was in progress; job was requeued.';
+        j.updated_at = new Date().toISOString();
+        changed = true;
+      } else if (j.status === 'uploading') {
         j.status = 'error';
-        j.error = 'Server restarted while download was in progress.';
+        j.error = 'Server restarted while upload was in progress. Check Telegram before retrying to avoid duplicates.';
         j.updated_at = new Date().toISOString();
         changed = true;
       }
@@ -145,6 +164,8 @@ module.exports = {
   getJob,
   getJobs,
   getNextJob,
+  getNextDownloadedJob,
+  getJobsByStatus,
   getRunningJobsCount,
   getRecentDuplicate
 };
