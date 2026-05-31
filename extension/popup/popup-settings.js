@@ -30,7 +30,7 @@ function saveSettingsForm() {
 /** Load all persisted data from chrome.storage.local into globals */
 function loadPersistedData(callback) {
   chrome.storage.local.get(
-    ['appSettings', 'siteProfiles', 'globalCookiesText', 'globalUserAgent', 'detectedVideos', 'tgPhoneCodeHash'],
+    ['appSettings', 'siteProfiles', 'globalCookiesText', 'globalUserAgent', 'detectedVideos', 'tgPhoneCodeHash', 'tgAuthState'],
     (result) => {
       if (result.appSettings) {
         activeSettings = { ...DEFAULT_SETTINGS, ...result.appSettings };
@@ -39,6 +39,7 @@ function loadPersistedData(callback) {
       globalCookiesText  = result.globalCookiesText              || '';
       globalUserAgent    = result.globalUserAgent                || navigator.userAgent;
       tgPhoneCodeHash    = result.tgPhoneCodeHash                || '';
+      tgAuthState        = result.tgAuthState                    || 'phone';
 
       // Restore persisted video list (all URLs, cross-tab — filtered in render)
       if (Array.isArray(result.detectedVideos)) {
@@ -169,7 +170,7 @@ async function checkBackendStatus() {
       console.log('[Backend check] Response OK:', data);
       el.className = 'backend-status online';
       const label = el.querySelector('.status-label');
-      if (label) label.textContent = `Backend Online · ${data.uptime ?? 0}s uptime`;
+      if (label) label.textContent = 'Backend Online';
     } else {
       throw new Error(`HTTP ${res.status}`);
     }

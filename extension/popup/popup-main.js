@@ -40,9 +40,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTelegramEvents();
   initTabNavigation();
 
-  // 5. Restore global user-agent field
-  if (elements.globalUa) elements.globalUa.value = globalUserAgent || navigator.userAgent;
-
   // 6. Check backend health
   checkBackendStatus();
 

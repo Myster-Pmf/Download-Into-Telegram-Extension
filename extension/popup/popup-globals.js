@@ -24,6 +24,7 @@ let telegramLoggedIn = false;
 let activeTabUrl = '';
 let activeTabExactUrl = '';  // full URL including path, for exact-page filtering
 let tgPhoneCodeHash = '';    // stored OTP code hash
+let tgAuthState = 'phone';   // active Telegram auth step ('phone', 'otp', '2fa', 'logged')
 
 // Active download polling timers (jobId => intervalId)
 const activePolls = new Map();
@@ -58,18 +59,7 @@ const elements = {
   settYtdlpFlags: document.getElementById('sett-ytdlp-flags'),
   settTgTargetInfo: document.getElementById('sett-tg-target-info'),
 
-  // Global Profile elements
-  globalCookies: document.getElementById('global-cookies'),
-  globalCookieFile: document.getElementById('global-cookie-file'),
-  globalUa: document.getElementById('global-ua'),
-  saveGlobalProfileBtn: document.getElementById('save-global-profile-btn'),
-  globalCookieStatus: document.getElementById('global-cookie-status'),
-  globalRefreshCookiesBtn: document.getElementById('global-refresh-cookies-btn'),
-  globalEditCookiesBtn: document.getElementById('global-edit-cookies-btn'),
-  globalDownloadCookiesBtn: document.getElementById('global-download-cookies-btn'),
-  globalCookieEditor: document.getElementById('global-cookie-editor'),
-  globalCookieMismatchHint: document.getElementById('global-cookie-mismatch-hint'),
-  globalRestoreLiveBtn: document.getElementById('global-restore-live-btn'),
+  // Custom Profile elements
   profLiveCookieStatus: document.getElementById('prof-live-cookie-status'),
   profSyncCookiesBtn: document.getElementById('prof-sync-cookies-btn'),
 

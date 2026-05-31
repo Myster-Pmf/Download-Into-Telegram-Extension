@@ -60,47 +60,12 @@ async function extractBrowserCookiesForDomain(domainPattern) {
   });
 }
 
-/** Refresh the live cookies snapshot for the active tab and update the UI */
+/** Refresh the live cookies snapshot for the active tab */
 async function refreshLiveCookiesState() {
   if (!activeTabUrl || !activeTabUrl.startsWith('http')) {
-    updateGlobalCookieStatusUI('', globalCookiesText);
     return;
   }
   liveCookiesText = await extractBrowserCookies(activeTabUrl);
-  updateGlobalCookieStatusUI(liveCookiesText, globalCookiesText);
-}
-
-function updateGlobalCookieStatusUI(liveText, savedText) {
-  const el = elements.globalCookieStatus;
-  if (!el) return;
-  const dot = el.querySelector('.cookie-status-dot');
-  const txt = el.querySelector('.cookie-status-text');
-
-  const liveCount  = countCookies(liveText);
-  const savedCount = countCookies(savedText);
-
-  el.className = 'cookie-status-indicator';
-
-  if (!savedText) {
-    if (liveCount > 0) {
-      el.classList.add('has-cookies');
-      txt.innerText = `Live Sync — ${liveCount} active browser cookies`;
-    } else {
-      el.classList.add('no-cookies');
-      txt.innerText = 'Live Sync — no browser cookies detected';
-    }
-    if (elements.globalCookieMismatchHint) elements.globalCookieMismatchHint.style.display = 'none';
-  } else {
-    if ((savedText || '').trim() === (liveText || '').trim()) {
-      el.classList.add('synced');
-      txt.innerText = `Synced — ${savedCount} cookies match browser`;
-      if (elements.globalCookieMismatchHint) elements.globalCookieMismatchHint.style.display = 'none';
-    } else {
-      el.classList.add('override-cookies');
-      txt.innerText = `Static Override — ${savedCount} custom cookies saved`;
-      if (elements.globalCookieMismatchHint) elements.globalCookieMismatchHint.style.display = 'block';
-    }
-  }
 }
 
 /** Check live cookies for the profile modal's domain pattern */
@@ -125,120 +90,19 @@ async function checkModalDomainCookies(pattern) {
   }
 }
 
-/** Get the cookies to pass to a download job, respecting profile overrides */
+/** Get the cookies to pass to a download job, prioritizing custom profile overrides, then falling back to live browser cookies for the video's domain */
 async function getCookiesForDownload(video, matchedProfile) {
   if (matchedProfile) {
     return matchedProfile.cookiesText
       ? matchedProfile.cookiesText
       : await extractBrowserCookiesForDomain(matchedProfile.domainPattern);
   }
-  return globalCookiesText
-    ? globalCookiesText
-    : await extractBrowserCookies(video.pageUrl || activeTabUrl);
+  // No matched profile: dynamically extract the live browser cookies for the video's exact URL/domain
+  return await extractBrowserCookies(video.pageUrl || video.srcUrl || activeTabUrl);
 }
 
-/** Wire up all cookie-related button events in the Global Profile tab */
+/** Wire up all cookie-related button events */
 function initCookieUIEvents() {
-  // Toggle editor panel
-  if (elements.globalEditCookiesBtn) {
-    elements.globalEditCookiesBtn.addEventListener('click', () => {
-      const editor = elements.globalCookieEditor;
-      const isOpen = editor.classList.contains('open');
-      if (!isOpen) {
-        editor.querySelector('textarea').value = globalCookiesText || liveCookiesText;
-        editor.classList.add('open');
-        elements.globalEditCookiesBtn.textContent = 'Close Editor';
-      } else {
-        editor.classList.remove('open');
-        elements.globalEditCookiesBtn.textContent = 'Edit Cookies';
-      }
-    });
-  }
-
-  // Save edited cookies
-  const saveEditedBtn = document.getElementById('global-save-edited-cookies-btn');
-  if (saveEditedBtn) {
-    saveEditedBtn.addEventListener('click', () => {
-      const textarea = elements.globalCookieEditor.querySelector('textarea');
-      globalCookiesText = textarea.value.trim();
-      chrome.storage.local.set({ globalCookiesText }, () => {
-        updateGlobalCookieStatusUI(liveCookiesText, globalCookiesText);
-        elements.globalCookieEditor.classList.remove('open');
-        if (elements.globalEditCookiesBtn) elements.globalEditCookiesBtn.textContent = 'Edit Cookies';
-        showToast('Cookies saved.', 'success');
-      });
-    });
-  }
-
-  // Restore to live browser cookies
-  if (elements.globalRestoreLiveBtn) {
-    elements.globalRestoreLiveBtn.addEventListener('click', async () => {
-      globalCookiesText = '';
-      chrome.storage.local.set({ globalCookiesText }, () => {
-        if (elements.globalCookieEditor) {
-          elements.globalCookieEditor.classList.remove('open');
-        }
-        if (elements.globalEditCookiesBtn) elements.globalEditCookiesBtn.textContent = 'Edit Cookies';
-        updateGlobalCookieStatusUI(liveCookiesText, '');
-        showToast('Restored to live browser cookies.', 'success');
-      });
-    });
-  }
-
-  // Refresh live cookies status
-  if (elements.globalRefreshCookiesBtn) {
-    elements.globalRefreshCookiesBtn.addEventListener('click', async () => {
-      await refreshLiveCookiesState();
-      showToast('Cookie status refreshed.', 'info');
-    });
-  }
-
-  // Download cookies.txt
-  if (elements.globalDownloadCookiesBtn) {
-    elements.globalDownloadCookiesBtn.addEventListener('click', async () => {
-      const textToDownload = globalCookiesText || liveCookiesText;
-      if (!textToDownload) {
-        showToast('No cookies to download.', 'warning');
-        return;
-      }
-      const blob = new Blob([textToDownload], { type: 'text/plain' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = 'cookies.txt';
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-  }
-
-  // Upload cookies.txt
-  if (elements.globalCookieFile) {
-    elements.globalCookieFile.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        globalCookiesText = ev.target.result.trim();
-        chrome.storage.local.set({ globalCookiesText }, () => {
-          updateGlobalCookieStatusUI(liveCookiesText, globalCookiesText);
-          showToast(`Uploaded ${countCookies(globalCookiesText)} cookies from file.`, 'success');
-        });
-      };
-      reader.readAsText(file);
-      e.target.value = '';
-    });
-  }
-
-  // Save global User-Agent
-  if (elements.saveGlobalProfileBtn) {
-    elements.saveGlobalProfileBtn.addEventListener('click', () => {
-      globalUserAgent = (elements.globalUa ? elements.globalUa.value : '') || navigator.userAgent;
-      chrome.storage.local.set({ globalUserAgent }, () => {
-        showToast('Global profile saved.', 'success');
-      });
-    });
-  }
-
   // Profile modal: sync cookies button
   if (elements.profSyncCookiesBtn) {
     elements.profSyncCookiesBtn.addEventListener('click', async () => {

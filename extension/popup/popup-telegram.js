@@ -45,13 +45,23 @@ async function checkTelegramLoginStatus() {
         const phone = data.phone ? ` · ${data.phone}` : '';
         text.textContent = `Logged in as ${name}${phone}`;
       }
+      tgAuthState = 'logged';
+      chrome.storage.local.set({ tgAuthState });
       showTgStep('authStepLogged');
     } else {
       if (card)  card.className  = 'tg-status-card logged-out';
       if (badge) badge.className = 'tg-badge offline';
       if (badge) badge.textContent = '✗';
       if (text)  text.textContent  = 'Not logged in — use the form below to connect.';
-      showTgStep('authStepPhone');
+      
+      // Wizard continuity: check stored auth state
+      if (tgAuthState === '2fa') {
+        showTgStep('authStep2fa');
+      } else if (tgAuthState === 'otp' || tgPhoneCodeHash) {
+        showTgStep('authStepOtp');
+      } else {
+        showTgStep('authStepPhone');
+      }
     }
   } catch (e) {
     telegramLoggedIn = false;
@@ -65,7 +75,15 @@ async function checkTelegramLoginStatus() {
         text.textContent = `Could not reach backend: ${e.message}`;
       }
     }
-    showTgStep('authStepPhone');
+    
+    // Wizard continuity: check stored auth state on error too
+    if (tgAuthState === '2fa') {
+      showTgStep('authStep2fa');
+    } else if (tgAuthState === 'otp' || tgPhoneCodeHash) {
+      showTgStep('authStepOtp');
+    } else {
+      showTgStep('authStepPhone');
+    }
   }
 }
 
@@ -74,6 +92,10 @@ async function sendOtp() {
   const phone = elements.tgPhone ? elements.tgPhone.value.trim() : '';
   if (!phone) {
     showToast('Enter your phone number first.', 'warning');
+    return;
+  }
+  if (!phone.startsWith('+')) {
+    showToast('Phone number must start with a country code (e.g. +1 or +44).', 'warning');
     return;
   }
 
@@ -89,7 +111,8 @@ async function sendOtp() {
 
     // Store phoneCodeHash globally and persist in local storage
     tgPhoneCodeHash = data.phoneCodeHash || '';
-    chrome.storage.local.set({ tgPhoneCodeHash });
+    tgAuthState = 'otp';
+    chrome.storage.local.set({ tgPhoneCodeHash, tgAuthState });
 
     showToast('Code sent! Check your Telegram app.', 'success');
     showTgStep('authStepOtp');
@@ -120,17 +143,25 @@ async function verifyOtp() {
     const data = await res.json();
 
     if (!res.ok) {
-      // 2FA required
-      if (res.status === 202 || data.need2fa) {
-        if (elements.tg2faHint && data.hint) elements.tg2faHint.textContent = `Hint: ${data.hint}`;
-        showTgStep('authStep2fa');
-        return;
-      }
       throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    // 2FA required (returned as a 200 OK status from the backend verifyOtp handler)
+    if (data.status === '2fa_required' || data.need2fa) {
+      if (elements.tg2faHint) {
+        elements.tg2faHint.textContent = data.hint ? `Hint: ${data.hint}` : 'No hint available';
+      }
+      tgAuthState = '2fa';
+      chrome.storage.local.set({ tgAuthState });
+      showTgStep('authStep2fa');
+      showToast('Two-Factor Authentication (2FA) is required.', 'info');
+      return;
     }
 
     // Clear saved phoneCodeHash upon successful login
     tgPhoneCodeHash = '';
+    tgAuthState = 'logged';
+    chrome.storage.local.set({ tgAuthState });
     chrome.storage.local.remove('tgPhoneCodeHash');
 
     showToast('Logged in to Telegram!', 'success');
@@ -164,6 +195,8 @@ async function verify2fa() {
 
     // Clear saved phoneCodeHash upon successful login
     tgPhoneCodeHash = '';
+    tgAuthState = 'logged';
+    chrome.storage.local.set({ tgAuthState });
     chrome.storage.local.remove('tgPhoneCodeHash');
 
     showToast('2FA verified! Logged in.', 'success');
@@ -194,6 +227,8 @@ async function logoutTelegram() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     telegramLoggedIn = false;
+    tgAuthState = 'phone';
+    chrome.storage.local.set({ tgAuthState });
     showToast('Logged out of Telegram.', 'info');
     await checkTelegramLoginStatus();
   } catch (e) {
@@ -212,10 +247,20 @@ function initTelegramEvents() {
 
   // Back buttons
   if (elements.tgBackPhoneBtn) {
-    elements.tgBackPhoneBtn.addEventListener('click', () => showTgStep('authStepPhone'));
+    elements.tgBackPhoneBtn.addEventListener('click', () => {
+      tgPhoneCodeHash = '';
+      tgAuthState = 'phone';
+      chrome.storage.local.set({ tgAuthState });
+      chrome.storage.local.remove('tgPhoneCodeHash');
+      showTgStep('authStepPhone');
+    });
   }
   if (elements.tgBackOtpBtn) {
-    elements.tgBackOtpBtn.addEventListener('click', () => showTgStep('authStepOtp'));
+    elements.tgBackOtpBtn.addEventListener('click', () => {
+      tgAuthState = 'otp';
+      chrome.storage.local.set({ tgAuthState });
+      showTgStep('authStepOtp');
+    });
   }
 
   // Allow pressing Enter to advance the wizard
