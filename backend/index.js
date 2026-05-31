@@ -63,7 +63,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  const systemApiKey = process.env.API_KEY || 'my_secure_shared_secret_api_key';
+  const systemApiKey = process.env.API_KEY || 'omnitrix2.0';
   const requestApiKey = req.headers['x-api-key'] || req.query.apiKey;
 
   if (requestApiKey !== systemApiKey) {

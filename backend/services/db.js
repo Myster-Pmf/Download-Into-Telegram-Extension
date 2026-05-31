@@ -44,9 +44,15 @@ async function initDb() {
           payload TEXT,
           error TEXT,
           created_at TEXT,
-          updated_at TEXT
+          updated_at TEXT,
+          speed TEXT
         )
       `);
+      try {
+        await libsqlClient.execute(`ALTER TABLE jobs ADD COLUMN speed TEXT`);
+      } catch (err) {
+        // Safe to ignore if column already exists
+      }
       await libsqlClient.execute(`
         CREATE TABLE IF NOT EXISTS sessions (
           key TEXT PRIMARY KEY,
@@ -110,7 +116,8 @@ function mapSqlRow(row) {
     payload: row.payload ? JSON.parse(row.payload) : null,
     error: row.error,
     created_at: row.created_at,
-    updated_at: row.updated_at
+    updated_at: row.updated_at,
+    speed: row.speed || null
   };
 }
 
@@ -132,15 +139,16 @@ async function createJob(job) {
       payload: job.payload ? JSON.stringify(job.payload) : null,
       error: null,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      speed: null
     };
     await libsqlClient.execute({
-      sql: `INSERT INTO jobs (id, url, output_name, status, progress, downloaded_bytes, total_bytes, filename, filepath, page_url, payload, error, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO jobs (id, url, output_name, status, progress, downloaded_bytes, total_bytes, filename, filepath, page_url, payload, error, created_at, updated_at, speed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         newJob.id, newJob.url, newJob.output_name, newJob.status, newJob.progress,
         newJob.downloaded_bytes, newJob.total_bytes, newJob.filename, newJob.filepath,
-        newJob.page_url, newJob.payload, newJob.error, newJob.created_at, newJob.updated_at
+        newJob.page_url, newJob.payload, newJob.error, newJob.created_at, newJob.updated_at, newJob.speed
       ]
     });
     return { ...newJob, payload: job.payload || null };
@@ -160,7 +168,8 @@ async function createJob(job) {
       payload: job.payload || null,
       error: null,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      speed: null
     };
     jobs.push(newJob);
     writeJobsSync(jobs);
@@ -411,6 +420,28 @@ async function deleteSession(key) {
   }
 }
 
+async function clearFinishedJobs() {
+  if (libsqlClient) {
+    try {
+      await libsqlClient.execute("DELETE FROM jobs WHERE status IN ('done', 'error')");
+      console.log('[DB] Turso SQL database cleared finished jobs.');
+    } catch (e) {
+      console.error('[DB] Failed to clear finished jobs on Turso:', e);
+      throw e;
+    }
+  } else {
+    try {
+      const jobs = readJobsSync();
+      const filtered = jobs.filter(j => j.status !== 'done' && j.status !== 'error');
+      writeJobsSync(filtered);
+      console.log('[DB] Local JSON database cleared finished jobs.');
+    } catch (e) {
+      console.error('[DB] Error clearing finished jobs:', e);
+      throw e;
+    }
+  }
+}
+
 // Automatically initialize when file is loaded
 (async () => {
   await initDb();
@@ -431,5 +462,6 @@ module.exports = {
   resetStuckJobs,
   getSession,
   saveSession,
-  deleteSession
+  deleteSession,
+  clearFinishedJobs
 };

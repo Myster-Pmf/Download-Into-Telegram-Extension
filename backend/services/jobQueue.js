@@ -176,7 +176,8 @@ async function runDownload(job) {
         await db.updateJob(jobId, {
           progress: progress.percent,
           downloaded_bytes: progress.downloadedBytes || 0,
-          total_bytes: progress.totalBytes || job.total_bytes || null
+          total_bytes: progress.totalBytes || job.total_bytes || null,
+          speed: progress.speed || null
         });
       }
     });
@@ -241,7 +242,7 @@ async function runUpload(job) {
         part.filepath,
         part.filename,
         caption,
-        async (progressFloat) => {
+        async (progressFloat, uploadSpeed) => {
           const partProgress = totalParts === 1
             ? progressFloat
             : (index + progressFloat) / totalParts;
@@ -252,7 +253,8 @@ async function runUpload(job) {
             await db.updateJob(jobId, {
               progress: percent,
               downloaded_bytes: Math.round((percent / 100) * totalBytes),
-              total_bytes: totalBytes
+              total_bytes: totalBytes,
+              speed: uploadSpeed || null
             });
           }
         }

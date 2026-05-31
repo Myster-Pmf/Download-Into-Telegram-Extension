@@ -262,14 +262,40 @@ async function uploadFile(target, filepath, filename, caption, progressCallback)
 
   console.log(`[Telegram] Starting file upload of ${filename} to ${target}...`);
 
+  let lastProgress = 0;
+  let lastTime = Date.now();
+  let fileInfo = fs.statSync(filepath);
+  let totalBytes = fileInfo.size;
+  let lastSpeed = '';
+
   await client.sendFile(entity, {
     file: filepath,
     forceDocument: false, // Send as native video if possible
     fileName: filename,
     caption: caption,
     progressCallback: (progressFloat) => {
+      const now = Date.now();
+      const timeElapsed = (now - lastTime) / 1000; // seconds
+      
+      if (timeElapsed >= 1.0 || progressFloat === 1.0) {
+        const bytesUploaded = progressFloat * totalBytes;
+        const bytesDiff = bytesUploaded - (lastProgress * totalBytes);
+        const speedBps = timeElapsed > 0 ? bytesDiff / timeElapsed : 0;
+        
+        if (speedBps > 1024 * 1024) {
+          lastSpeed = `${(speedBps / (1024 * 1024)).toFixed(2)} MB/s`;
+        } else if (speedBps > 1024) {
+          lastSpeed = `${(speedBps / 1024).toFixed(1)} KB/s`;
+        } else if (speedBps > 0) {
+          lastSpeed = `${Math.round(speedBps)} B/s`;
+        }
+        
+        lastProgress = progressFloat;
+        lastTime = now;
+      }
+      
       if (progressCallback) {
-        progressCallback(progressFloat);
+        progressCallback(progressFloat, lastSpeed);
       }
     }
   });

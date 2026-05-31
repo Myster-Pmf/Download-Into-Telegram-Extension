@@ -20,6 +20,7 @@ router.get('/status/:jobId', async (req, res) => {
       downloadedBytes: job.downloaded_bytes || 0,
       totalBytes: job.total_bytes || null,
       filename: job.filename,
+      speed: job.speed || null,
       error: job.error
     });
   } catch (error) {
@@ -31,7 +32,7 @@ router.get('/status/:jobId', async (req, res) => {
 // GET /jobs - Fetch download history log
 router.get('/jobs', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const limit = parseInt(req.query.limit, 10) || 50;
     const jobs = await db.getJobs(limit);
 
     res.json(
@@ -45,6 +46,7 @@ router.get('/jobs', async (req, res) => {
         totalBytes: j.total_bytes || null,
         filename: j.filename,
         pageUrl: j.page_url,
+        speed: j.speed || null,
         error: j.error,
         createdAt: j.created_at
       }))
@@ -52,6 +54,17 @@ router.get('/jobs', async (req, res) => {
   } catch (error) {
     console.error('[Router] Error fetching jobs history:', error);
     res.status(500).json({ error: 'Failed to retrieve jobs history.' });
+  }
+});
+
+// DELETE /jobs/finished - Clear all done/error jobs from history
+router.delete('/jobs/finished', async (req, res) => {
+  try {
+    await db.clearFinishedJobs();
+    res.json({ success: true, message: 'Finished jobs cleared from history.' });
+  } catch (error) {
+    console.error('[Router] Error clearing finished jobs:', error);
+    res.status(500).json({ error: 'Failed to clear finished jobs.' });
   }
 });
 

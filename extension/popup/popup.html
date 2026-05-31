@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>VideoGrab Control Panel</title>
+  <title>VideoGrab — Telegram Downloader</title>
   <link rel="stylesheet" href="popup.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -10,112 +10,125 @@
 </head>
 <body>
   <div class="app-container">
+
+    <!-- ═══════════════════════ HEADER ═══════════════════════ -->
     <header class="app-header">
       <div class="brand">
-        <img src="/icons/icon.png" alt="Logo" class="app-logo">
+        <img id="app-logo-img" src="/icons/icon.png" alt="VideoGrab" class="app-logo">
         <div class="brand-text">
           <h1>VideoGrab</h1>
           <span class="sub-brand">Telegram Downloader</span>
         </div>
       </div>
-      <div id="backend-status" class="status-badge status-offline">
+      <div id="backend-status" class="backend-status checking">
         <span class="status-dot"></span>
-        <span class="status-text">Checking server...</span>
+        <span class="status-label">Connecting…</span>
       </div>
     </header>
 
-    <nav class="tab-bar">
-      <button class="tab-btn active" data-tab="tab-videos"><span class="tab-icon">Video</span><span class="tab-label">Videos</span></button>
-      <button class="tab-btn" data-tab="tab-profiles"><span class="tab-icon">Auth</span><span class="tab-label">Profiles</span></button>
-      <button class="tab-btn" data-tab="tab-telegram"><span class="tab-icon">TG</span><span class="tab-label">Telegram</span></button>
-      <button class="tab-btn" data-tab="tab-history"><span class="tab-icon">Log</span><span class="tab-label">History</span></button>
-      <button class="tab-btn" data-tab="tab-settings"><span class="tab-icon">Set</span><span class="tab-label">Settings</span></button>
+    <!-- ═══════════════════════ TAB BAR ═══════════════════════ -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="videos" role="tab" aria-selected="true">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        <span class="tab-label">Videos</span>
+      </button>
+      <button class="tab-btn" data-tab="profiles" role="tab">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span class="tab-label">Profiles</span>
+      </button>
+      <button class="tab-btn" data-tab="telegram" role="tab">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        <span class="tab-label">Telegram</span>
+      </button>
+      <button class="tab-btn" data-tab="history" role="tab">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+        <span class="tab-label">History</span>
+      </button>
+      <button class="tab-btn" data-tab="settings" role="tab">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="tab-label">Settings</span>
+      </button>
     </nav>
 
+    <!-- ═══════════════════════ TAB PANELS ═══════════════════════ -->
     <main class="tab-content">
-      <section id="tab-videos" class="tab-pane active">
+
+      <!-- ─── Videos Tab ─── -->
+      <section id="tab-videos" class="tab-panel active" role="tabpanel">
         <div class="action-bar">
-          <div class="filters">
-            <button class="filter-btn active" data-filter="all">All</button>
-            <button class="filter-btn" data-filter="HLS">HLS</button>
-            <button class="filter-btn" data-filter="DASH">DASH</button>
-            <button class="filter-btn" data-filter="MP4">MP4</button>
+          <div class="action-bar-filters">
+            <label class="scope-toggle" title="Show only videos detected on the current page URL">
+              <input type="checkbox" id="scope-tab-checkbox" checked>
+              <span>This Page Only</span>
+            </label>
           </div>
           <div class="action-bar-side">
-            <label class="scope-toggle">
-              <input type="checkbox" id="scope-tab-checkbox" checked>
-              <span>Current Site Only</span>
-            </label>
-            <button id="clear-videos-btn" class="btn btn-secondary btn-sm">Clear All</button>
+            <button id="clear-videos-btn" class="btn btn-ghost btn-sm">Clear List</button>
           </div>
         </div>
-
-        <div id="videos-list" class="cards-list">
-          <div class="empty-state">
-            <div class="empty-icon">Video</div>
-            <h3>No streams detected</h3>
-            <p>Play a video on any page to capture its stream URL and headers.</p>
-          </div>
-        </div>
+        <div id="videos-list" class="cards-list"></div>
       </section>
 
-      <section id="tab-profiles" class="tab-pane">
-        <div class="profile-header-actions">
-          <h2>Site Cookie Profiles</h2>
-          <button id="new-profile-btn" class="btn btn-primary btn-sm">+ Profile</button>
+      <!-- ─── Profiles Tab ─── -->
+      <section id="tab-profiles" class="tab-panel" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>Cookie Profiles</h2>
+            <p class="section-desc">Per-domain cookies and headers used during download.</p>
+          </div>
+          <button id="new-profile-btn" class="btn btn-primary btn-sm">+ New</button>
         </div>
 
-        <div id="profiles-list" class="profiles-container">
-          <!-- Global Fallback Profile Card -->
-          <div class="profile-card global-fallback">
-            <div class="profile-card-header">
-              <div class="profile-name-row">
-                <span class="profile-name">Global Fallback</span>
-                <span class="profile-badge">Fallback Profile</span>
-              </div>
-              <div class="profile-cookie-status-row">
-                <div id="global-cookie-status" class="cookie-status-indicator">
-                  <span class="cookie-status-dot"></span>
-                  <span class="cookie-status-text">Loading cookies...</span>
-                </div>
-                <div class="profile-card-actions">
-                  <button class="btn-link" id="global-refresh-cookies-btn" title="Re-extract live browser cookies for active tab">↻ Sync</button>
-                  <button class="btn-link" id="global-edit-cookies-btn">Edit</button>
-                  <button class="btn-link" id="global-download-cookies-btn" title="Download cookies.txt">⬇ Export</button>
-                </div>
-              </div>
+        <!-- Global Fallback -->
+        <div class="profile-card global-fallback">
+          <div class="profile-card-header">
+            <div class="profile-name-row">
+              <span class="profile-name">Global Fallback</span>
+              <span class="profile-badge">Default</span>
             </div>
-
-            <!-- Collapsible cookie editor -->
-            <div id="global-cookie-editor" class="cookie-editor-panel">
-              <div id="global-cookie-mismatch-hint" class="cookie-mismatch-hint" style="display:none;">
-                <span>⚠ Your manual edits differ from the current live browser cookies.</span>
-                <button class="btn-link" id="global-restore-live-btn">Restore live cookies</button>
+            <div class="profile-cookie-status-row">
+              <div id="global-cookie-status" class="cookie-status-indicator">
+                <span class="cookie-status-dot"></span>
+                <span class="cookie-status-text">Loading…</span>
               </div>
-              <div class="form-group">
-                <label style="font-size:11px;">Cookies (Netscape format — auto-extracted from browser)</label>
-                <textarea id="global-cookies" placeholder="# Netscape HTTP Cookie File&#10;domain.com	TRUE	/	FALSE	177983637	cookie_name	cookie_value" rows="5"></textarea>
+              <div class="profile-card-actions">
+                <button class="btn-link" id="global-refresh-cookies-btn" title="Re-fetch live browser cookies for active tab">↻ Sync</button>
+                <button class="btn-link" id="global-edit-cookies-btn">Edit</button>
+                <button class="btn-link" id="global-download-cookies-btn" title="Download cookies.txt">↓ Export</button>
               </div>
-              <div class="cookie-editor-actions">
-                <label class="btn btn-secondary btn-file btn-sm import-btn">
-                  <span>⬆ Import cookies.txt</span>
-                  <input type="file" id="global-cookie-file" accept=".txt" hidden>
-                </label>
-                <div class="form-group" style="flex:1; margin:0;">
-                  <label style="font-size:11px;">User-Agent</label>
-                  <input type="text" id="global-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
-                </div>
-              </div>
-              <button id="save-global-profile-btn" class="btn btn-primary btn-sm" style="width:100%; margin-top:8px;">Save Changes</button>
             </div>
           </div>
 
-          <!-- Dynamic site profiles rendered here -->
-          <div id="custom-profiles-list"></div>
+          <!-- Collapsible cookie editor -->
+          <div id="global-cookie-editor" class="cookie-editor-panel">
+            <div id="global-cookie-mismatch-hint" class="cookie-mismatch-hint" style="display:none;">
+              <span>Your saved cookies differ from the current live browser cookies.</span>
+              <button class="btn-link" id="global-restore-live-btn">Restore live cookies</button>
+            </div>
+            <div class="form-group">
+              <label>Cookies (Netscape format — auto-extracted from browser)</label>
+              <textarea id="global-cookies" placeholder="# Netscape HTTP Cookie File&#10;.domain.com&#9;TRUE&#9;/&#9;FALSE&#9;0&#9;name&#9;value" rows="5"></textarea>
+            </div>
+            <div class="cookie-editor-actions">
+              <label class="btn btn-ghost btn-sm import-btn">
+                <span>↑ Import .txt</span>
+                <input type="file" id="global-cookie-file" accept=".txt" hidden>
+              </label>
+              <button id="global-save-edited-cookies-btn" class="btn btn-primary btn-sm">Save Cookies</button>
+            </div>
+            <div class="form-group mt-2">
+              <label>User-Agent Override</label>
+              <input type="text" id="global-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)…">
+            </div>
+            <button id="save-global-profile-btn" class="btn btn-secondary btn-sm btn-block mt-1">Save User-Agent</button>
+          </div>
         </div>
 
-        <!-- New / Edit Profile Modal -->
-        <div id="profile-modal" class="modal-overlay">
+        <!-- Dynamic site profiles -->
+        <div id="custom-profiles-list"></div>
+
+        <!-- Profile Modal -->
+        <div id="profile-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
           <div class="modal-box">
             <h3 id="modal-title">New Site Profile</h3>
             <form id="profile-form">
@@ -123,27 +136,27 @@
 
               <div class="form-group">
                 <label>Profile Name</label>
-                <input type="text" id="prof-name" placeholder="e.g. Mediadelivery" required>
+                <input type="text" id="prof-name" placeholder="e.g. Mediadelivery CDN" required>
               </div>
 
               <div class="form-group">
-                <label>Domain Pattern (glob, e.g. *.mediadelivery.net)</label>
+                <label>Domain Pattern <span class="label-hint">(glob, e.g. *.mediadelivery.net)</span></label>
                 <input type="text" id="prof-pattern" placeholder="*.mediadelivery.net" required>
               </div>
 
-              <div class="cookie-status-row-modal" id="prof-cookie-status-row">
+              <div class="cookie-status-row-modal">
                 <div id="prof-live-cookie-status" class="cookie-status-indicator">
                   <span class="cookie-status-dot"></span>
-                  <span class="cookie-status-text">No live cookies</span>
+                  <span class="cookie-status-text">Enter a domain to check</span>
                 </div>
-                <button type="button" class="btn-link" id="prof-sync-cookies-btn">↻ Sync live cookies for domain</button>
+                <button type="button" class="btn-link" id="prof-sync-cookies-btn">↻ Sync live cookies</button>
               </div>
 
               <div class="form-group">
-                <label style="font-size:11px;">Cookies (Netscape format)</label>
-                <textarea id="prof-cookies" placeholder="# Netscape HTTP Cookie File..." rows="4"></textarea>
-                <label class="btn btn-secondary btn-file btn-sm mt-1 import-btn">
-                  <span>⬆ Import cookies.txt</span>
+                <label>Cookies <span class="label-hint">(Netscape — leave blank for live browser sync)</span></label>
+                <textarea id="prof-cookies" placeholder="# Netscape HTTP Cookie File…" rows="4"></textarea>
+                <label class="btn btn-ghost btn-sm mt-1 import-btn">
+                  <span>↑ Import cookies.txt</span>
                   <input type="file" id="prof-cookie-file" accept=".txt" hidden>
                 </label>
               </div>
@@ -151,17 +164,17 @@
               <div class="form-row">
                 <div class="form-group col-6">
                   <label>Origin Override</label>
-                  <input type="text" id="prof-origin" placeholder="https://iframe.mediadelivery.net">
+                  <input type="text" id="prof-origin" placeholder="https://iframe.example.com">
                 </div>
                 <div class="form-group col-6">
                   <label>Referer Override</label>
-                  <input type="text" id="prof-referer" placeholder="https://iframe.mediadelivery.net/">
+                  <input type="text" id="prof-referer" placeholder="https://example.com/">
                 </div>
               </div>
 
               <div class="form-group">
                 <label>User-Agent Override</label>
-                <input type="text" id="prof-ua" placeholder="Mozilla/5.0 ...">
+                <input type="text" id="prof-ua" placeholder="Mozilla/5.0 …">
               </div>
 
               <div class="modal-buttons">
@@ -173,33 +186,38 @@
         </div>
       </section>
 
-      <section id="tab-telegram" class="tab-pane">
-        <h2>Telegram Authentication</h2>
-        <p class="section-desc">Authenticate your Telegram user account via MTProto to upload large videos directly to channels and groups.</p>
-
-        <div id="tg-status-card" class="tg-status-card logged-out">
-          <div class="tg-status-header">
-            <span class="status-label">Authentication Status</span>
-            <span id="tg-status-badge" class="badge badge-danger">Not logged in</span>
-          </div>
-          <div class="tg-status-body">
-            <p id="tg-status-text">Your backend is not signed into Telegram. Complete the form below to connect your account.</p>
+      <!-- ─── Telegram Tab ─── -->
+      <section id="tab-telegram" class="tab-panel" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>Telegram</h2>
+            <p class="section-desc">Connect your account to upload videos directly to any chat or channel.</p>
           </div>
         </div>
 
+        <!-- Status card -->
+        <div id="tg-status-card" class="tg-status-card">
+          <span id="tg-status-badge" class="tg-badge">…</span>
+          <span id="tg-status-text">Checking status…</span>
+        </div>
+
         <div class="auth-box">
+          <!-- Step: Phone -->
           <div id="auth-step-phone" class="auth-step-panel active">
+            <p class="auth-step-hint">Enter your phone number with country code to receive a verification code on Telegram.</p>
             <div class="form-group">
-              <label>Phone Number (with country code, e.g. +14155552671)</label>
-              <input type="tel" id="tg-phone" placeholder="+14155552671">
+              <label>Phone Number</label>
+              <input type="tel" id="tg-phone" placeholder="+14155552671" autocomplete="tel">
             </div>
-            <button id="tg-send-otp-btn" class="btn btn-primary btn-block">Send OTP Code</button>
+            <button id="tg-send-otp-btn" class="btn btn-primary btn-block">Send Verification Code</button>
           </div>
 
+          <!-- Step: OTP -->
           <div id="auth-step-otp" class="auth-step-panel">
+            <p class="auth-step-hint">A code was sent to your Telegram app. Enter it below.</p>
             <div class="form-group">
-              <label>Enter the 5-digit verification code received on Telegram</label>
-              <input type="text" id="tg-otp" placeholder="12345">
+              <label>Verification Code</label>
+              <input type="text" id="tg-otp" placeholder="12345" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
             </div>
             <div class="auth-button-group">
               <button id="tg-back-phone-btn" class="btn btn-secondary">Back</button>
@@ -207,79 +225,82 @@
             </div>
           </div>
 
+          <!-- Step: 2FA -->
           <div id="auth-step-2fa" class="auth-step-panel">
+            <p class="auth-step-hint">Your account has Two-Factor Authentication enabled.</p>
+            <div id="tg-2fa-hint" class="auth-hint-box"></div>
             <div class="form-group">
-              <label>Two-Factor Password Required</label>
-              <div id="tg-2fa-hint" class="alert alert-info">Hint: Loading...</div>
-              <input type="password" id="tg-password" placeholder="Enter your 2FA password">
+              <label>2FA Password</label>
+              <input type="password" id="tg-password" placeholder="Enter your cloud password" autocomplete="current-password">
             </div>
             <div class="auth-button-group">
               <button id="tg-back-otp-btn" class="btn btn-secondary">Back</button>
-              <button id="tg-verify-2fa-btn" class="btn btn-primary">Verify Password</button>
+              <button id="tg-verify-2fa-btn" class="btn btn-primary">Confirm</button>
             </div>
           </div>
 
+          <!-- Step: Logged In -->
           <div id="auth-step-logged" class="auth-step-panel">
-            <div class="telegram-target-panel">
-              <div>
-                <h3>Default Upload Target</h3>
-                <p>New downloads use this chat or channel. Running transfers keep their current target.</p>
-              </div>
-              <div class="form-group">
-                <label>Chat or Channel</label>
+            <div class="target-section">
+              <h3>Upload Target</h3>
+              <p class="section-desc">Choose which chat or channel downloaded videos are sent to.</p>
+              <div class="form-group mt-2">
                 <div class="target-picker-row">
-                  <select id="tg-target-select"><option value="">Loading chats...</option></select>
-                  <button type="button" id="tg-refresh-chats-btn" class="btn btn-secondary btn-sm" title="Refresh chats list">Refresh</button>
+                  <select id="tg-target-select">
+                    <option value="" disabled selected>Choose a chat…</option>
+                  </select>
+                  <button type="button" id="tg-refresh-chats-btn" class="btn btn-secondary btn-sm">Refresh</button>
                 </div>
-                <input type="text" id="tg-target-custom" placeholder="e.g. @mychannel or -100123456789" class="target-custom-input">
               </div>
-              <button type="button" id="tg-save-target-btn" class="btn btn-secondary btn-block">Save Upload Target</button>
+              <button type="button" id="tg-save-target-btn" class="btn btn-primary btn-block">Set as Upload Target</button>
             </div>
-            <button id="tg-logout-btn" class="btn btn-danger btn-block">Sign Out of Telegram</button>
+            <button id="tg-logout-btn" class="btn btn-ghost btn-danger-text btn-block mt-2">Sign Out of Telegram</button>
           </div>
         </div>
       </section>
 
-      <section id="tab-history" class="tab-pane">
-        <div class="history-header-actions">
-          <h2>Download History</h2>
-          <button id="refresh-history-btn" class="btn btn-secondary btn-sm">Refresh</button>
-        </div>
-
-        <div id="history-list" class="cards-list">
-          <div class="empty-state">
-            <div class="empty-icon">Log</div>
-            <h3>No download history found</h3>
-            <p>Recent downloads and queue states will be tracked here.</p>
+      <!-- ─── History Tab ─── -->
+      <section id="tab-history" class="tab-panel" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>Download History</h2>
+          </div>
+          <div class="header-actions">
+            <button id="refresh-history-btn" class="btn btn-secondary btn-sm">Refresh</button>
+            <button id="clear-history-btn" class="btn btn-ghost btn-danger-text btn-sm">Clear Finished</button>
           </div>
         </div>
+        <div id="history-list" class="cards-list"></div>
       </section>
 
-      <section id="tab-settings" class="tab-pane">
-        <h2>App Settings</h2>
+      <!-- ─── Settings Tab ─── -->
+      <section id="tab-settings" class="tab-panel" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>Settings</h2>
+            <p class="section-desc">Configure backend connection and download behaviour.</p>
+          </div>
+        </div>
 
         <form id="settings-form">
           <div class="form-group">
             <label>Backend URL</label>
-            <input type="url" id="sett-backend-url" placeholder="https://lightx99-downloadintotelegram.hf.space" required>
-            <small class="form-text text-muted">Endpoint of your Node.js server.</small>
+            <input type="url" id="sett-backend-url" placeholder="Leave blank to use default">
+            <small class="form-hint">Default: https://lightx99-downloadintotelegram.hf.space</small>
           </div>
 
           <div class="form-group">
-            <label>API Key (Shared Secret)</label>
-            <input type="password" id="sett-api-key" placeholder="Enter X-API-Key" required>
+            <label>API Key</label>
+            <input type="password" id="sett-api-key" placeholder="Leave blank to use default" autocomplete="off">
+            <small class="form-hint">Leave blank to use the built-in default key.</small>
           </div>
 
           <div class="form-group">
-            <label>Telegram Target Chat/Channel</label>
-            <div class="target-picker-row">
-              <select id="sett-tg-target" required>
-                <option value="">Connect Telegram and fetch chats</option>
-              </select>
-              <button type="button" id="refresh-chats-btn" class="btn btn-secondary btn-sm" title="Refresh chats list">Refresh</button>
+            <label>Upload Target</label>
+            <div id="sett-tg-target-info" class="settings-tg-info">
+              No target selected — go to the Telegram tab to log in and choose a chat.
             </div>
-            <input type="text" id="sett-tg-target-custom" placeholder="e.g. @mychannel or -100123456789" class="target-custom-input">
-            <small class="form-text text-muted">Select a chat from your logged-in Telegram account, or choose Custom ID to type one manually.</small>
+            <small class="form-hint">Set your upload target in the Telegram tab after logging in.</small>
           </div>
 
           <div class="form-row">
@@ -291,11 +312,11 @@
                 <option value="720p">720p Max</option>
                 <option value="480p">480p Max</option>
                 <option value="360p">360p Max</option>
-                <option value="worst">Worst / Smallest</option>
+                <option value="worst">Smallest File</option>
               </select>
             </div>
             <div class="form-group col-6">
-              <label>Auto-Match Profiles</label>
+              <label>Profile Auto-Match</label>
               <select id="sett-auto-match">
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
@@ -304,23 +325,26 @@
           </div>
 
           <div class="form-group">
-            <label>Global Default User-Agent</label>
-            <input type="text" id="sett-default-ua" placeholder="Mozilla/5.0...">
+            <label>Default User-Agent</label>
+            <input type="text" id="sett-default-ua" placeholder="Mozilla/5.0…">
           </div>
 
           <div class="form-group">
-            <label>Custom yt-dlp Flags</label>
+            <label>Extra yt-dlp Flags</label>
             <input type="text" id="sett-ytdlp-flags" placeholder="e.g. --embed-subs --proxy http://127.0.0.1:8080">
-            <small class="form-text text-muted">Additional parameters appended directly to yt-dlp CLI arguments.</small>
+            <small class="form-hint">Appended directly to the yt-dlp command.</small>
           </div>
 
-          <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
+          <button type="submit" class="btn btn-primary btn-block">Save Settings</button>
         </form>
       </section>
+
     </main>
 
-    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <!-- ═══════════════════════ TOAST REGION ═══════════════════════ -->
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false"></div>
 
+    <!-- ═══════════════════════ CONFIRM DIALOG ═══════════════════════ -->
     <div id="app-dialog" class="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
       <div class="dialog-box">
         <div id="app-dialog-icon" class="dialog-icon">!</div>
@@ -335,8 +359,17 @@
         </div>
       </div>
     </div>
-  </div>
 
-  <script src="popup.js"></script>
+  </div><!-- .app-container -->
+
+  <!-- Module scripts — order matters: globals first, main last -->
+  <script src="popup-globals.js"></script>
+  <script src="popup-utils.js"></script>
+  <script src="popup-cookies.js"></script>
+  <script src="popup-settings.js"></script>
+  <script src="popup-profiles.js"></script>
+  <script src="popup-videos.js"></script>
+  <script src="popup-telegram.js"></script>
+  <script src="popup-main.js"></script>
 </body>
 </html>

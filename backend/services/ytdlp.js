@@ -134,10 +134,17 @@ function downloadVideo(jobId, options, progressCallback) {
             lastTotalBytes = parseSizeToBytes(sizeMatch[1], sizeMatch[2]) || lastTotalBytes;
           }
           const downloadedBytes = lastTotalBytes ? Math.round((percent / 100) * lastTotalBytes) : 0;
+          
+          let speed = '';
+          const speedMatch = line.match(/at\s+([\d.]+\s*[KMGT]?i?B\/s)/i);
+          if (speedMatch) {
+            speed = speedMatch[1].trim();
+          }
+
           if (percent > lastProgress || lastTotalBytes !== previousTotalBytes) {
             lastProgress = percent;
             if (progressCallback) {
-              progressCallback({ percent, downloadedBytes, totalBytes: lastTotalBytes || null });
+              progressCallback({ percent, downloadedBytes, totalBytes: lastTotalBytes || null, speed });
             }
           }
         }

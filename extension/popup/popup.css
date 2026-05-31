@@ -197,16 +197,7 @@ textarea {
   transform: scaleX(1);
 }
 
-.tab-icon {
-  min-width: 32px;
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.4;
-  text-transform: uppercase;
-}
+/* Tab SVG Sizing is handled in the modular additions section at the bottom of this file */
 
 /* Content Area */
 .tab-content {
@@ -1220,6 +1211,137 @@ select option {
   font-size: 12px;
 }
 
+
 .cookie-status-row-modal .btn-link {
   font-size: 11px;
 }
+
+/* ═══════════════════════════════════════════════════════
+   MODULAR POPUP ADDITIONS — new classes for refactored JS
+   ═══════════════════════════════════════════════════════ */
+
+/* tab-panel is the renamed tab-pane */
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeIn 0.3s ease-out; }
+
+/* Tab icons — sized for SVGs */
+.tab-btn .tab-icon {
+  width: 20px;
+  height: 20px;
+  background: none;
+  padding: 0;
+  min-width: unset;
+  text-transform: none;
+  font-weight: normal;
+  border-radius: 0;
+  color: inherit;
+  transition: transform 0.2s ease;
+}
+.tab-btn:hover .tab-icon {
+  transform: translateY(-1px);
+}
+
+/* ── Backend status indicator ── */
+.backend-status {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 500;
+  padding: 4px 10px; border-radius: 20px;
+  background: rgba(15,23,42,0.6); border: 1px solid var(--border-glass);
+  transition: var(--transition-smooth);
+}
+.backend-status .status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; background: var(--text-dark);
+}
+.backend-status .status-label { color: var(--text-muted); }
+.backend-status.online  { border-color: rgba(16,185,129,0.25); }
+.backend-status.online  .status-dot   { background: var(--status-green); box-shadow: 0 0 6px var(--status-green); }
+.backend-status.online  .status-label { color: var(--status-green); }
+.backend-status.offline { border-color: rgba(239,68,68,0.25); }
+.backend-status.offline .status-dot   { background: var(--status-red); }
+.backend-status.offline .status-label { color: var(--status-red); }
+.backend-status.checking .status-dot  { background: var(--status-yellow); animation: status-pulse 0.8s infinite alternate; }
+.backend-status.checking .status-label { color: var(--status-yellow); }
+
+/* ── Utility ── */
+.mt-1 { margin-top: 8px; } .mt-2 { margin-top: 14px; } .mt-3 { margin-top: 20px; }
+.btn-ghost { background: transparent; border: 1px solid var(--border-glass); color: var(--text-muted); }
+.btn-ghost:hover { background: rgba(255,255,255,0.06); color: var(--text-main); }
+.btn-danger-text { color: var(--status-red) !important; border-color: rgba(239,68,68,0.2) !important; }
+.btn-danger-text:hover { background: rgba(239,68,68,0.08) !important; }
+
+/* ── Section header ── */
+.section-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; gap: 10px; }
+.section-header h2 { font-family: var(--font-title); font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+.section-desc { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+.header-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.form-hint { display: block; font-size: 11px; color: var(--text-dark); margin-top: 4px; line-height: 1.4; font-style: italic; }
+.label-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 10px; color: var(--text-dark); }
+
+/* ── Settings TG info ── */
+.settings-tg-info {
+  background: rgba(15,23,42,0.5); border: 1px solid var(--border-glass);
+  border-radius: 8px; padding: 9px 12px; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;
+}
+.action-bar-filters { display: flex; align-items: center; gap: 8px; }
+
+/* ── Video card layout ── */
+.video-card-inner { display: flex; gap: 12px; align-items: flex-start; }
+.video-thumb { flex-shrink: 0; width: 80px; height: 52px; border-radius: 6px; overflow: hidden; background: rgba(15,23,42,0.5); }
+.video-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.video-card-body { flex: 1; min-width: 0; }
+.video-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+.video-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.meta-chip { font-size: 10.5px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); border-radius: 10px; padding: 2px 7px; color: var(--text-muted); }
+.video-card-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.video-name-input { flex: 1; min-width: 100px; padding: 6px 10px; font-size: 12px; }
+.btn-download { background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)); color: #fff; border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: var(--transition-smooth); }
+.btn-download:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-download.btn-disabled, .btn-download:disabled { background: rgba(255,255,255,0.07); color: var(--text-muted); cursor: not-allowed; transform: none; filter: none; }
+
+/* ── Progress bar ── */
+.progress-wrap { margin: 6px 0; }
+.progress-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.progress-bar-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--color-primary), var(--color-secondary)); border-radius: 4px; transition: width 0.4s ease; }
+
+/* ── History rows ── */
+.history-row { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+.history-row-main { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 5px; }
+.history-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.history-row-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--text-muted); }
+.history-error { color: var(--status-red); }
+.history-loading, .history-error-msg { color: var(--text-muted); font-size: 12px; padding: 12px 0; text-align: center; }
+
+/* ── Status badges (history) ── */
+.status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; flex-shrink: 0; }
+.status-badge.queued      { background: rgba(245,158,11,0.12); color: var(--status-yellow); }
+.status-badge.downloading { background: rgba(6,182,212,0.12);  color: var(--color-primary-hover); }
+.status-badge.downloaded  { background: rgba(139,92,246,0.12); color: var(--color-secondary-hover); }
+.status-badge.uploading   { background: rgba(6,182,212,0.12);  color: var(--color-primary); }
+.status-badge.done        { background: rgba(16,185,129,0.12); color: var(--status-green); }
+.status-badge.error       { background: rgba(239,68,68,0.12);  color: var(--status-red); }
+
+/* ── Telegram auth ── */
+.auth-step-hint { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5; }
+.auth-hint-box { background: rgba(6,182,212,0.07); border: 1px solid rgba(6,182,212,0.15); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--color-primary-hover); margin-bottom: 12px; }
+.tg-status-card { display: flex; align-items: center; gap: 10px; background: rgba(15,23,42,0.5); border: 1px solid var(--border-glass); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+.tg-badge { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; background: rgba(255,255,255,0.06); color: var(--text-muted); }
+.tg-badge.online  { background: rgba(16,185,129,0.15); color: var(--status-green); }
+.tg-badge.offline { background: rgba(239,68,68,0.15);  color: var(--status-red); }
+.tg-badge.error   { background: rgba(245,158,11,0.15); color: var(--status-yellow); }
+.tg-status-card.logged-in  { border-color: rgba(16,185,129,0.2); }
+.tg-status-card.logged-out { border-color: rgba(239,68,68,0.15); }
+.target-section { background: rgba(15,23,42,0.4); border: 1px solid var(--border-glass); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+.target-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+
+/* ── Empty states ── */
+.empty-state { text-align: center; padding: 28px 20px; color: var(--text-muted); }
+.empty-state-icon { font-size: 32px; margin-bottom: 10px; }
+.empty-state p { font-size: 13px; line-height: 1.6; }
+.empty-hint { font-size: 11.5px; color: var(--text-dark); }
+
+/* ── Profile tags ── */
+.profile-tag { font-size: 10px; padding: 2px 7px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); border-radius: 8px; color: var(--text-muted); }
+.profile-tag.dim { opacity: 0.6; }
+.profile-card-meta { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
