@@ -8,6 +8,7 @@
     "dev": "node index.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.3",
     "big-integer": "^1.6.51",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",

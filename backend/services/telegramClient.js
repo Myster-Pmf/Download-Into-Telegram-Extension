@@ -7,9 +7,11 @@ const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { Api } = require('telegram/tl');
 const { computeCheck } = require('telegram/Password');
+const db = require('./db');
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '../data');
 const SESSION_PATH = path.join(DATA_DIR, 'session.json');
+const SESSION_DB_KEY = 'telegram_session';
 
 // Memory storage for ongoing logins
 let clientInstance = null;
@@ -49,7 +51,22 @@ function decrypt(text) {
   }
 }
 
-function loadSessionString() {
+async function loadSessionString() {
+  // 1. Try remote Turso DB first (returns '' empty string if not found, null if DB unavailable)
+  const dbResult = await db.getSession(SESSION_DB_KEY);
+  if (dbResult !== null) {
+    // DB mode: result is either a session string or '' (empty = not found)
+    if (dbResult) {
+      try {
+        return decrypt(dbResult);
+      } catch (e) {
+        console.error('[Telegram] Failed to decrypt session from database:', e);
+      }
+    }
+    return '';
+  }
+
+  // 2. File fallback (local JSON mode — db.getSession returned null)
   if (fs.existsSync(SESSION_PATH)) {
     try {
       const raw = fs.readFileSync(SESSION_PATH, 'utf8');
@@ -64,13 +81,18 @@ function loadSessionString() {
   return '';
 }
 
-function saveSessionString(sessionString) {
+async function saveSessionString(sessionString) {
+  const encrypted = encrypt(sessionString);
+
+  // 1. Always save to database if available
+  await db.saveSession(SESSION_DB_KEY, encrypted);
+
+  // 2. Also save to local file as fallback
   try {
     const dir = path.dirname(SESSION_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    const encrypted = encrypt(sessionString);
     fs.writeFileSync(SESSION_PATH, JSON.stringify({ encryptedSession: encrypted }, null, 2));
   } catch (e) {
     console.error('[Telegram] Error saving session file:', e);
@@ -89,7 +111,7 @@ async function getClient() {
     throw new Error('TELEGRAM_API_ID or TELEGRAM_API_HASH is missing from environment.');
   }
 
-  const sessionString = loadSessionString();
+  const sessionString = await loadSessionString();
   const session = new StringSession(sessionString);
 
   clientInstance = new TelegramClient(session, apiId, apiHash, {
@@ -143,7 +165,7 @@ async function verifyOtp(phone, phoneCodeHash, code) {
     const hashToUse = phoneCodeHash || tempLoginState.phoneCodeHash;
 
     // Use raw MTProto Api.auth.SignIn (GramJS 2.x has no client.signIn)
-    const result = await client.invoke(
+    await client.invoke(
       new Api.auth.SignIn({
         phoneNumber: phoneToUse,
         phoneCodeHash: hashToUse,
@@ -153,7 +175,7 @@ async function verifyOtp(phone, phoneCodeHash, code) {
 
     // Save session on success
     const sessionString = client.session.save();
-    saveSessionString(sessionString);
+    await saveSessionString(sessionString);
     return { status: 'success' };
   } catch (error) {
     // GramJS raises an RPC error with errorMessage 'SESSION_PASSWORD_NEEDED'
@@ -189,7 +211,7 @@ async function verify2fa(password) {
 
   // 4. Save session on success
   const sessionString = client.session.save();
-  saveSessionString(sessionString);
+  await saveSessionString(sessionString);
 
   const me = await client.getMe();
   return {
@@ -206,7 +228,10 @@ async function logout() {
     console.error('[Telegram] Error calling logOut:', e);
   }
 
-  // Delete session file
+  // Delete session from database
+  await db.deleteSession(SESSION_DB_KEY);
+
+  // Delete local session file
   if (fs.existsSync(SESSION_PATH)) {
     fs.unlinkSync(SESSION_PATH);
   }
@@ -243,7 +268,6 @@ async function uploadFile(target, filepath, filename, caption, progressCallback)
     fileName: filename,
     caption: caption,
     progressCallback: (progressFloat) => {
-      // Progress is a decimal between 0 and 1
       if (progressCallback) {
         progressCallback(progressFloat);
       }

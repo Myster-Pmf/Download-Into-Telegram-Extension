@@ -62,47 +62,59 @@
       <section id="tab-profiles" class="tab-pane">
         <div class="profile-header-actions">
           <h2>Site Cookie Profiles</h2>
-          <button id="new-profile-btn" class="btn btn-primary btn-sm">New Profile</button>
+          <button id="new-profile-btn" class="btn btn-primary btn-sm">+ Profile</button>
         </div>
 
         <div id="profiles-list" class="profiles-container">
+          <!-- Global Fallback Profile Card -->
           <div class="profile-card global-fallback">
             <div class="profile-card-header">
-              <span class="profile-name">Global Fallback</span>
-              <span class="profile-badge">Fallback Profile</span>
-            </div>
-            <div class="profile-card-body">
-              <p class="profile-desc">Used automatically when no domain-specific pattern matches the video stream URL.</p>
-
-              <div class="form-group">
-                <label>Cookies (.txt Netscape format or raw text)</label>
-                <div class="cookie-input-group">
-                  <textarea id="global-cookies" placeholder="# Netscape HTTP Cookie File&#10;domain.com	TRUE	/	FALSE	177983637	cookie_name	cookie_value" rows="3"></textarea>
-                  <div class="cookie-file-actions">
-                    <label class="btn btn-secondary btn-file import-btn">
-                      <span class="btn-icon">Import</span>
-                      <span>Import cookies.txt</span>
-                      <input type="file" id="global-cookie-file" accept=".txt" hidden>
-                    </label>
-                    <button id="clear-global-cookies" class="btn btn-danger-link btn-sm">Clear</button>
-                  </div>
+              <div class="profile-name-row">
+                <span class="profile-name">Global Fallback</span>
+                <span class="profile-badge">Fallback Profile</span>
+              </div>
+              <div class="profile-cookie-status-row">
+                <div id="global-cookie-status" class="cookie-status-indicator">
+                  <span class="cookie-status-dot"></span>
+                  <span class="cookie-status-text">Loading cookies...</span>
+                </div>
+                <div class="profile-card-actions">
+                  <button class="btn-link" id="global-refresh-cookies-btn" title="Re-extract live browser cookies for active tab">↻ Sync</button>
+                  <button class="btn-link" id="global-edit-cookies-btn">Edit</button>
+                  <button class="btn-link" id="global-download-cookies-btn" title="Download cookies.txt">⬇ Export</button>
                 </div>
               </div>
+            </div>
 
-              <div class="form-row">
-                <div class="form-group col-12">
-                  <label>Default User-Agent</label>
+            <!-- Collapsible cookie editor -->
+            <div id="global-cookie-editor" class="cookie-editor-panel">
+              <div id="global-cookie-mismatch-hint" class="cookie-mismatch-hint" style="display:none;">
+                <span>⚠ Your manual edits differ from the current live browser cookies.</span>
+                <button class="btn-link" id="global-restore-live-btn">Restore live cookies</button>
+              </div>
+              <div class="form-group">
+                <label style="font-size:11px;">Cookies (Netscape format — auto-extracted from browser)</label>
+                <textarea id="global-cookies" placeholder="# Netscape HTTP Cookie File&#10;domain.com	TRUE	/	FALSE	177983637	cookie_name	cookie_value" rows="5"></textarea>
+              </div>
+              <div class="cookie-editor-actions">
+                <label class="btn btn-secondary btn-file btn-sm import-btn">
+                  <span>⬆ Import cookies.txt</span>
+                  <input type="file" id="global-cookie-file" accept=".txt" hidden>
+                </label>
+                <div class="form-group" style="flex:1; margin:0;">
+                  <label style="font-size:11px;">User-Agent</label>
                   <input type="text" id="global-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
                 </div>
               </div>
-
-              <button id="save-global-profile-btn" class="btn btn-secondary btn-block">Save Global Fallback</button>
+              <button id="save-global-profile-btn" class="btn btn-primary btn-sm" style="width:100%; margin-top:8px;">Save Changes</button>
             </div>
           </div>
 
+          <!-- Dynamic site profiles rendered here -->
           <div id="custom-profiles-list"></div>
         </div>
 
+        <!-- New / Edit Profile Modal -->
         <div id="profile-modal" class="modal-overlay">
           <div class="modal-box">
             <h3 id="modal-title">New Site Profile</h3>
@@ -115,16 +127,23 @@
               </div>
 
               <div class="form-group">
-                <label>Domain Pattern (glob matching, e.g. *.mediadelivery.net)</label>
+                <label>Domain Pattern (glob, e.g. *.mediadelivery.net)</label>
                 <input type="text" id="prof-pattern" placeholder="*.mediadelivery.net" required>
               </div>
 
+              <div class="cookie-status-row-modal" id="prof-cookie-status-row">
+                <div id="prof-live-cookie-status" class="cookie-status-indicator">
+                  <span class="cookie-status-dot"></span>
+                  <span class="cookie-status-text">No live cookies</span>
+                </div>
+                <button type="button" class="btn-link" id="prof-sync-cookies-btn">↻ Sync live cookies for domain</button>
+              </div>
+
               <div class="form-group">
-                <label>Cookies (Netscape content or raw header values)</label>
+                <label style="font-size:11px;">Cookies (Netscape format)</label>
                 <textarea id="prof-cookies" placeholder="# Netscape HTTP Cookie File..." rows="4"></textarea>
                 <label class="btn btn-secondary btn-file btn-sm mt-1 import-btn">
-                  <span class="btn-icon">Import</span>
-                  <span>Import cookies.txt</span>
+                  <span>⬆ Import cookies.txt</span>
                   <input type="file" id="prof-cookie-file" accept=".txt" hidden>
                 </label>
               </div>
@@ -142,7 +161,7 @@
 
               <div class="form-group">
                 <label>User-Agent Override</label>
-                <input type="text" id="prof-ua" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
+                <input type="text" id="prof-ua" placeholder="Mozilla/5.0 ...">
               </div>
 
               <div class="modal-buttons">
@@ -242,7 +261,7 @@
         <form id="settings-form">
           <div class="form-group">
             <label>Backend URL</label>
-            <input type="url" id="sett-backend-url" placeholder="http://localhost:3000" required>
+            <input type="url" id="sett-backend-url" placeholder="https://lightx99-downloadintotelegram.hf.space" required>
             <small class="form-text text-muted">Endpoint of your Node.js server.</small>
           </div>
 

@@ -30,8 +30,9 @@ function cleanupJobFolder(jobId) {
   }
 }
 
-function getReadyUploadCount() {
-  return db.getJobsByStatus('downloaded').length;
+async function getReadyUploadCount() {
+  const jobs = await db.getJobsByStatus('downloaded');
+  return jobs.length;
 }
 
 function getFileSize(filepath) {
@@ -166,13 +167,13 @@ async function runDownload(job) {
   console.log(`[Queue] Downloading job ${jobId} | URL: ${job.url}`);
 
   try {
-    db.updateJob(jobId, { status: 'downloading', progress: 0, error: null });
+    await db.updateJob(jobId, { status: 'downloading', progress: 0, error: null });
 
-    const result = await ytdlp.downloadVideo(jobId, job.payload, (progress) => {
+    const result = await ytdlp.downloadVideo(jobId, job.payload, async (progress) => {
       if (typeof progress === 'number') {
-        db.updateJob(jobId, { progress });
+        await db.updateJob(jobId, { progress });
       } else {
-        db.updateJob(jobId, {
+        await db.updateJob(jobId, {
           progress: progress.percent,
           downloaded_bytes: progress.downloadedBytes || 0,
           total_bytes: progress.totalBytes || job.total_bytes || null
@@ -182,7 +183,7 @@ async function runDownload(job) {
 
     console.log(`[Queue] Download finished for job ${jobId}. Local file: ${result.filepath}`);
 
-    db.updateJob(jobId, {
+    await db.updateJob(jobId, {
       filename: result.filename,
       filepath: result.filepath,
       status: 'downloaded',
@@ -193,9 +194,9 @@ async function runDownload(job) {
   } catch (err) {
     console.error(`[Queue] Download job ${jobId} encountered an error:`, err);
 
-    const currentJob = db.getJob(jobId);
+    const currentJob = await db.getJob(jobId);
     if (!currentJob || currentJob.status !== 'error') {
-      db.updateJob(jobId, {
+      await db.updateJob(jobId, {
         status: 'error',
         error: err.message || 'An unexpected error occurred during download.'
       });
@@ -209,7 +210,7 @@ async function runUpload(job) {
   console.log(`[Queue] Uploading job ${jobId} | File: ${job.filepath}`);
 
   try {
-    db.updateJob(jobId, { status: 'uploading', progress: 0, downloaded_bytes: 0, error: null });
+    await db.updateJob(jobId, { status: 'uploading', progress: 0, downloaded_bytes: 0, error: null });
 
     const filepath = job.filepath;
     const filename = job.filename;
@@ -240,15 +241,15 @@ async function runUpload(job) {
         part.filepath,
         part.filename,
         caption,
-        (progressFloat) => {
+        async (progressFloat) => {
           const partProgress = totalParts === 1
             ? progressFloat
             : (index + progressFloat) / totalParts;
           const percent = Math.min(99, Math.round(partProgress * 100));
-          const cur = db.getJob(jobId);
+          const cur = await db.getJob(jobId);
           if (cur && cur.status === 'uploading') {
             const totalBytes = cur.total_bytes || getFileSize(filepath);
-            db.updateJob(jobId, {
+            await db.updateJob(jobId, {
               progress: percent,
               downloaded_bytes: Math.round((percent / 100) * totalBytes),
               total_bytes: totalBytes
@@ -258,10 +259,10 @@ async function runUpload(job) {
       );
     }
 
-    const currentJob = db.getJob(jobId);
+    const currentJob = await db.getJob(jobId);
     if (currentJob && currentJob.status === 'uploading') {
       const totalBytes = currentJob.total_bytes || getFileSize(filepath);
-      db.updateJob(jobId, { status: 'done', progress: 100, downloaded_bytes: totalBytes, total_bytes: totalBytes });
+      await db.updateJob(jobId, { status: 'done', progress: 100, downloaded_bytes: totalBytes, total_bytes: totalBytes });
       console.log(`[Queue] Job ${jobId} finished successfully.`);
     } else {
       console.log(`[Queue] Job ${jobId} was cancelled during upload. Skipping success completion.`);
@@ -271,9 +272,9 @@ async function runUpload(job) {
   } catch (err) {
     console.error(`[Queue] Upload job ${jobId} encountered an error:`, err);
 
-    const currentJob = db.getJob(jobId);
+    const currentJob = await db.getJob(jobId);
     if (!currentJob || currentJob.status !== 'error') {
-      db.updateJob(jobId, {
+      await db.updateJob(jobId, {
         status: 'error',
         error: err.message || 'An unexpected error occurred during upload.'
       });
@@ -282,9 +283,10 @@ async function runUpload(job) {
   }
 }
 
-function startNextDownloads() {
-  while (activeDownloads < MAX_CONCURRENT_DOWNLOADS && getReadyUploadCount() < MAX_READY_UPLOADS) {
-    const nextJob = db.getNextJob();
+async function startNextDownloads() {
+  const readyCount = await getReadyUploadCount();
+  while (activeDownloads < MAX_CONCURRENT_DOWNLOADS && readyCount < MAX_READY_UPLOADS) {
+    const nextJob = await db.getNextJob();
     if (!nextJob) return;
 
     activeDownloads += 1;
@@ -299,10 +301,10 @@ function startNextDownloads() {
   }
 }
 
-function startNextUpload() {
+async function startNextUpload() {
   if (isUploading) return;
 
-  const nextJob = db.getNextDownloadedJob();
+  const nextJob = await db.getNextDownloadedJob();
   if (!nextJob) return;
 
   isUploading = true;
@@ -317,8 +319,8 @@ function startNextUpload() {
 }
 
 function processQueue() {
-  startNextUpload();
-  startNextDownloads();
+  startNextUpload().catch(err => console.error('[Queue] Error in startNextUpload:', err));
+  startNextDownloads().catch(err => console.error('[Queue] Error in startNextDownloads:', err));
 }
 
 function startQueueWorker() {

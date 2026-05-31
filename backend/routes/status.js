@@ -4,10 +4,10 @@ const router = express.Router();
 const db = require('../services/db');
 
 // GET /status/:jobId - Poll status of a specific job
-router.get('/status/:jobId', (req, res) => {
+router.get('/status/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const job = db.getJob(jobId);
+    const job = await db.getJob(jobId);
 
     if (!job) {
       return res.status(404).json({ error: `Job with ID "${jobId}" not found.` });
@@ -29,11 +29,11 @@ router.get('/status/:jobId', (req, res) => {
 });
 
 // GET /jobs - Fetch download history log
-router.get('/jobs', (req, res) => {
+router.get('/jobs', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit, 10) || 20;
-    const jobs = db.getJobs(limit);
-    
+    const jobs = await db.getJobs(limit);
+
     res.json(
       jobs.map(j => ({
         jobId: j.id,

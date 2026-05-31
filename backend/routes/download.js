@@ -6,7 +6,8 @@ const db = require('../services/db');
 const ytdlp = require('../services/ytdlp');
 const { cleanupJobFolder } = require('../services/jobQueue');
 
-router.post('/', (req, res) => {
+// POST / - Enqueue a download job
+router.post('/', async (req, res) => {
   try {
     const {
       url,
@@ -27,7 +28,7 @@ router.post('/', (req, res) => {
     }
 
     // Check duplicate download in the last 7 days
-    const duplicate = db.getRecentDuplicate(url);
+    const duplicate = await db.getRecentDuplicate(url);
     const hasDuplicate = !!duplicate;
 
     // Create a new job ID
@@ -35,7 +36,7 @@ router.post('/', (req, res) => {
 
     // Sanitize filename for SQLite/JSON record
     let cleanFilename = outputFilename || '';
-    cleanFilename = cleanFilename.replace(/[\/\\:\*\?"<>\|]/g, '').trim();
+    cleanFilename = cleanFilename.replace(/[\/\\:\*\?"<>|]/g, '').trim();
     if (cleanFilename.length > 200) {
       cleanFilename = cleanFilename.substring(0, 200);
     }
@@ -61,10 +62,10 @@ router.post('/', (req, res) => {
       output_name: cleanFilename || null,
       page_url: pageUrl || null,
       total_bytes: totalBytes || null,
-      payload: payload // Save the payload alongside the job row
+      payload: payload
     };
 
-    db.createJob(jobRecord);
+    await db.createJob(jobRecord);
 
     console.log(`[Router] Enqueued download job ${jobId} for URL ${url}`);
 
@@ -92,14 +93,14 @@ router.post('/info', async (req, res) => {
 });
 
 // POST /cancel - Cancel a queued or running job
-router.post('/cancel', (req, res) => {
+router.post('/cancel', async (req, res) => {
   try {
     const { jobId } = req.body;
     if (!jobId) {
       return res.status(400).json({ error: 'Missing jobId in request body.' });
     }
 
-    const job = db.getJob(jobId);
+    const job = await db.getJob(jobId);
     if (!job) {
       return res.status(404).json({ error: `Job with ID "${jobId}" not found.` });
     }
@@ -110,29 +111,29 @@ router.post('/cancel', (req, res) => {
 
     console.log(`[Router] Cancelling job ${jobId} (current status: ${job.status})`);
 
-    // 1. If downloading, kill the process
+    // 1. If downloading, kill the active process
     if (job.status === 'downloading') {
-      ytdlp.cancelDownload(jobId); // Kill process if active in memory
-      db.updateJob(jobId, { status: 'error', error: 'Download was cancelled by user.' });
+      ytdlp.cancelDownload(jobId);
+      await db.updateJob(jobId, { status: 'error', error: 'Download was cancelled by user.' });
       return res.json({ success: true, message: 'Download cancellation signal sent.' });
     }
 
-    // 2. If queued, just mark as error/cancelled
+    // 2. If queued, just mark as cancelled
     if (job.status === 'queued') {
-      db.updateJob(jobId, { status: 'error', error: 'Job cancelled by user before starting.' });
+      await db.updateJob(jobId, { status: 'error', error: 'Job cancelled by user before starting.' });
       return res.json({ success: true, message: 'Queued job cancelled.' });
     }
 
-    // 3. If downloaded but not uploaded yet, mark as cancelled and remove the local file
+    // 3. If downloaded but not yet uploaded, mark cancelled and clean up local file
     if (job.status === 'downloaded') {
-      db.updateJob(jobId, { status: 'error', error: 'Job cancelled by user before upload.' });
+      await db.updateJob(jobId, { status: 'error', error: 'Job cancelled by user before upload.' });
       cleanupJobFolder(jobId);
       return res.json({ success: true, message: 'Downloaded job cancelled and local file removed.' });
     }
 
-    // 4. If uploading, mark as error/cancelled (the worker will ignore the success completion)
+    // 4. If uploading, mark as cancelled (worker checks status before marking done)
     if (job.status === 'uploading') {
-      db.updateJob(jobId, { status: 'error', error: 'Upload was cancelled by user.' });
+      await db.updateJob(jobId, { status: 'error', error: 'Upload was cancelled by user.' });
       return res.json({ success: true, message: 'Upload marked as cancelled. If Telegram already accepted the transfer, it may still finish.' });
     }
 

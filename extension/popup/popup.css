@@ -1093,3 +1093,133 @@ select option {
 }
 
 .mt-1 { margin-top: 4px; }
+
+/* --- Profiles Tab Premium Cookie Management Styles --- */
+.profile-card.global-fallback {
+  border-left: 3px solid var(--color-secondary);
+}
+
+.profile-card.global-fallback .profile-card-header {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.profile-name-row,
+.profile-cookie-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.profile-cookie-status-row {
+  margin-top: 4px;
+}
+
+.cookie-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.cookie-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-dark);
+  display: inline-block;
+  transition: var(--transition-smooth);
+}
+
+/* Status colors and glows */
+.cookie-status-indicator.has-cookies .cookie-status-dot {
+  background-color: var(--status-green);
+  box-shadow: 0 0 8px var(--status-green);
+}
+.cookie-status-indicator.has-cookies {
+  color: var(--status-green);
+}
+
+.cookie-status-indicator.no-cookies .cookie-status-dot {
+  background-color: var(--text-dark);
+  box-shadow: none;
+}
+
+.cookie-status-indicator.override-cookies .cookie-status-dot {
+  background-color: var(--status-yellow);
+  box-shadow: 0 0 8px var(--status-yellow);
+}
+.cookie-status-indicator.override-cookies {
+  color: var(--status-yellow);
+}
+
+.cookie-status-indicator.synced .cookie-status-dot {
+  background-color: var(--color-primary);
+  box-shadow: 0 0 8px var(--color-primary);
+}
+.cookie-status-indicator.synced {
+  color: var(--color-primary-hover);
+}
+
+/* Collapsible cookie editor panel */
+.cookie-editor-panel {
+  display: none;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px dashed var(--border-glass);
+}
+
+.cookie-editor-panel.active {
+  display: block;
+  animation: panelSlideDown 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes panelSlideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cookie-mismatch-hint {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--status-yellow);
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.cookie-editor-actions {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 10px;
+}
+
+.cookie-status-row-modal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.cookie-status-row-modal .btn-link {
+  font-size: 11px;
+}
