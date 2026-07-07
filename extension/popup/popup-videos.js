@@ -135,25 +135,40 @@ async function triggerDownload(video, outputName) {
     return;
   }
 
-  const matchedProfile = matchProfileForUrl(video.srcUrl || video.pageUrl || '');
+  const videoUrl  = video.srcUrl || video.url || '';
+  const pageUrl   = video.pageUrl || activeTabExactUrl || '';
+
+  if (!videoUrl) {
+    showToast('Cannot download: video URL is missing.', 'error');
+    return;
+  }
+
+  // Match profile using the page URL first (where the video was detected),
+  // then fall back to the video src URL (CDN domain).
+  const matchedProfile = matchProfileForUrl(pageUrl) || matchProfileForUrl(videoUrl);
   const cookiesText    = await getCookiesForDownload(video, matchedProfile);
-  const ua             = (matchedProfile && matchedProfile.userAgent) || globalUserAgent || navigator.userAgent;
-  const origin         = matchedProfile && matchedProfile.origin  ? matchedProfile.origin  : '';
-  const referer        = matchedProfile && matchedProfile.referer ? matchedProfile.referer : (video.pageUrl || '');
+  
+  // Resolve headers: profile overrides > captured request headers > computed defaults
+  const capturedHeaders = video.headers || {};
+  const ua      = (matchedProfile?.userAgent) || capturedHeaders.userAgent || activeSettings.defaultUa || globalUserAgent || navigator.userAgent;
+  const referer = (matchedProfile?.referer)   || capturedHeaders.referer  || pageUrl || '';
+
+  // Compute origin from referer/pageUrl if not explicitly overridden
+  let defaultOrigin = '';
+  try { if (referer) defaultOrigin = new URL(referer).origin; } catch (e) {}
+  const origin = (matchedProfile?.origin) ? matchedProfile.origin : (capturedHeaders.origin || defaultOrigin);
 
   const body = {
-    url:        video.srcUrl,
-    page_url:   video.pageUrl || activeTabExactUrl,
-    output_name: outputName || video.title || '',
-    quality:    activeSettings.quality || 'best',
-    target:     activeSettings.tgTarget,
-    ytdlp_flags: activeSettings.ytdlpFlags || '',
-    headers: {
-      'User-Agent': ua,
-      ...(referer ? { 'Referer': referer } : {}),
-      ...(origin  ? { 'Origin':  origin  } : {})
-    },
-    cookies_text: cookiesText || ''
+    url:            videoUrl,
+    outputFilename: outputName || video.title || '',
+    referer:        referer,
+    origin:         origin,
+    userAgent:      ua,
+    cookiesContent: cookiesText || '',
+    target:         activeSettings.tgTarget,
+    quality:        activeSettings.quality || 'best',
+    extraFlags:     activeSettings.ytdlpFlags || '',
+    pageUrl:        pageUrl
   };
 
   try {
@@ -178,12 +193,14 @@ async function triggerDownload(video, outputName) {
     // Record the job with source srcUrl so we can match it back to the card
     activeJobsMap.set(jobId, {
       jobId,
-      srcUrl:   video.srcUrl,
+      srcUrl:   videoUrl,
       status:   'queued',
       progress: 0
     });
 
-    showToast('Download queued! Tracking progress…', 'success');
+    const profileInfo = matchedProfile ? ` · Profile: ${matchedProfile.name}` : '';
+    const cookieInfo  = cookiesText ? ` · Cookies: ${countCookies(cookiesText)}` : '';
+    showToast(`Queued!${profileInfo}${cookieInfo}`, 'success');
     renderVideos();
     startPolling(jobId, video);
 
@@ -192,6 +209,7 @@ async function triggerDownload(video, outputName) {
     showToast(`Failed to queue: ${e.message}`, 'error');
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Progress polling
@@ -287,7 +305,18 @@ async function fetchVideoMeta(video) {
   }
 
   try {
-    const res = await fetch(video.srcUrl, { method: 'HEAD', signal: AbortSignal.timeout(6000) });
+    // Include cookies so protected CDN content doesn't 403
+    const matchedProfile = matchProfileForUrl(video.pageUrl) || matchProfileForUrl(video.srcUrl);
+    const cookiesText = await getCookiesForDownload(video, matchedProfile);
+
+    const headers = {};
+    if (cookiesText) headers['Cookie'] = cookiesText.split('\n')
+      .filter(l => l.trim() && !l.startsWith('#'))
+      .map(l => { const parts = l.split('\t'); return parts.length >= 7 ? `${parts[5]}=${parts[6]}` : ''; })
+      .filter(Boolean)
+      .join('; ');
+
+    const res = await fetch(video.srcUrl, { method: 'HEAD', headers, signal: AbortSignal.timeout(6000) });
     const contentLength = res.headers.get('content-length');
     const contentType   = res.headers.get('content-type') || '';
 

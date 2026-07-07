@@ -1,6 +1,13 @@
-// VideoGrab - background.js (Manifest V2)
+// VideoGrab - background.js (Manifest V3)
 
-const VIDEO_REGEX = /\.(m3u8|mpd|mp4|mkv|webm)($|\?)/i;
+const VIDEO_REGEX = /\.(m3u8|mpd|mp4|mkv|webm|ts|m4s|f4v|3gp|avi|mov|wmv|flv)($|\?)/i;
+
+// Content-Type patterns that indicate actual video streams (not manifests)
+const VIDEO_CONTENT_TYPES = [
+  'video/mp4', 'video/webm', 'video/x-flv', 'video/x-msvideo',
+  'video/quicktime', 'video/x-ms-wmv', 'video/3gpp', 'video/ogg',
+  'video/mpeg', 'video/mp2t', 'video/x-matroska'
+];
 
 function getVideoType(url) {
   const match = url.match(VIDEO_REGEX);
@@ -8,13 +15,33 @@ function getVideoType(url) {
     const ext = match[1].toLowerCase();
     if (ext === 'm3u8') return 'HLS';
     if (ext === 'mpd') return 'DASH';
+    if (ext === 'ts') return 'HLS-Segment';
+    if (ext === 'm4s') return 'DASH-Segment';
     return ext.toUpperCase();
   }
   return 'MP4';
 }
 
+function getVideoTypeFromContentType(contentType) {
+  const ct = contentType.toLowerCase().split(';')[0].trim();
+  if (ct === 'video/mp4') return 'MP4';
+  if (ct === 'video/webm') return 'WEBM';
+  if (ct === 'video/x-matroska') return 'MKV';
+  if (ct === 'video/mp2t') return 'HLS-Segment';
+  if (ct === 'video/x-flv') return 'FLV';
+  if (ct === 'video/quicktime') return 'MOV';
+  if (ct === 'video/3gpp') return '3GP';
+  return 'MP4';
+}
+
 function isVideoUrl(url) {
   return VIDEO_REGEX.test(url);
+}
+
+function isVideoContentType(contentType) {
+  if (!contentType) return false;
+  const ct = contentType.toLowerCase().split(';')[0].trim();
+  return VIDEO_CONTENT_TYPES.some(vt => ct === vt);
 }
 
 // Clean filename candidate from page title or URL slug
@@ -27,29 +54,22 @@ function sanitizeFilename(title, url) {
       const parsed = new URL(url);
       const parts = parsed.pathname.split('/');
       name = parts[parts.length - 1] || 'video';
-      // Strip extension if present
-      name = name.replace(/\.(m3u8|mpd|mp4|mkv|webm)$/i, '');
+      name = name.replace(/\.(m3u8|mpd|mp4|mkv|webm|ts|m4s|f4v|3gp|avi|mov|wmv|flv)$/i, '');
     } catch (e) {
       name = 'video';
     }
   }
-  
-  // Strip illegal Windows/Unix filename characters
   return name.replace(/[\/\\:\*\?"<>\|]/g, '').trim().substring(0, 150) || 'video';
 }
 
-// Keep in-memory cache of requests to avoid duplication in rapid fires
-const processedUrls = new Set();
+// ---------------------------------------------------------------------------
+// 1) URL-extension based detection (existing logic, now with more extensions)
+// ---------------------------------------------------------------------------
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   function(details) {
     const url = details.url;
     if (!isVideoUrl(url)) return;
-
-    // Check if we've already processed this exact URL in the last 5 seconds
-    if (processedUrls.has(url)) return;
-    processedUrls.add(url);
-    setTimeout(() => processedUrls.delete(url), 5000);
 
     const headers = {};
     if (details.requestHeaders) {
@@ -63,7 +83,6 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
 
     const type = getVideoType(url);
 
-    // Get Tab details
     if (details.tabId >= 0) {
       chrome.tabs.get(details.tabId, function(tab) {
         const pageTitle = tab ? tab.title : '';
@@ -80,11 +99,79 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
   ["requestHeaders", "extraHeaders"]
 );
 
+// ---------------------------------------------------------------------------
+// 2) Content-Type based detection — catches videos served without extensions
+// ---------------------------------------------------------------------------
+
+chrome.webRequest.onResponseStarted.addListener(
+  function(details) {
+    const url = details.url;
+    // Skip if already caught by the extension-based regex
+    if (isVideoUrl(url)) return;
+
+    // Check response headers for video Content-Type
+    let contentType = '';
+    if (details.responseHeaders) {
+      for (const header of details.responseHeaders) {
+        if (header.name.toLowerCase() === 'content-type') {
+          contentType = header.value || '';
+          break;
+        }
+      }
+    }
+
+    if (!isVideoContentType(contentType)) return;
+
+    const headers = {};
+    // Capture request headers from the tab if available
+    if (details.tabId >= 0) {
+      chrome.tabs.get(details.tabId, function(tab) {
+        const pageTitle = tab ? tab.title : '';
+        const pageUrl = tab ? tab.url : '';
+        const cleanName = sanitizeFilename(pageTitle, url);
+        const type = getVideoTypeFromContentType(contentType);
+        saveVideo(url, type, headers, pageUrl, cleanName);
+      });
+    } else {
+      const cleanName = sanitizeFilename('', url);
+      const type = getVideoTypeFromContentType(contentType);
+      saveVideo(url, type, headers, '', cleanName);
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["responseHeaders"]
+);
+
+// ---------------------------------------------------------------------------
+// 3) Message handling — popup requests + real-time notifications
+// ---------------------------------------------------------------------------
+
+// Respond to popup's GET_DETECTED_VIDEOS request
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_DETECTED_VIDEOS') {
+    chrome.storage.local.get({ detectedVideos: [] }, (result) => {
+      sendResponse({ videos: result.detectedVideos });
+    });
+    return true; // keep message channel open for async response
+  }
+
+  if (message.type === 'VIDEO_DETECTED_FROM_CONTENT') {
+    // Content script detected a <video> element
+    const { srcUrl, pageUrl } = message;
+    if (!srcUrl || srcUrl.startsWith('blob:')) return;
+    const cleanName = sanitizeFilename('', srcUrl);
+    saveVideo(srcUrl, getVideoType(srcUrl), {}, pageUrl || '', cleanName);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4) Storage + notification helpers
+// ---------------------------------------------------------------------------
+
 function saveVideo(url, type, headers, pageUrl, cleanName) {
   chrome.storage.local.get({ detectedVideos: [] }, function(result) {
     let videos = result.detectedVideos;
-    
-    // Check if URL already exists in storage, if so update it, else prepend
+
     const index = videos.findIndex(v => v.url === url);
     const newVideo = {
       id: 'vid_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -97,18 +184,33 @@ function saveVideo(url, type, headers, pageUrl, cleanName) {
     };
 
     if (index !== -1) {
-      // Update existing item metadata but keep its ID
       newVideo.id = videos[index].id;
       videos[index] = newVideo;
     } else {
       videos.unshift(newVideo);
     }
 
-    // Cap at 100 items
     if (videos.length > 100) {
       videos = videos.slice(0, 100);
     }
 
     chrome.storage.local.set({ detectedVideos: videos });
+
+    // Notify popup if it's open (ignore errors if no listener)
+    try {
+      chrome.runtime.sendMessage({
+        type: 'VIDEO_DETECTED',
+        srcUrl: url,
+        pageUrl: pageUrl,
+        title: cleanName,
+        filename: cleanName,
+        filesize: null,
+        duration: null,
+        thumbnail: null,
+        mimeType: ''
+      }, () => { void chrome.runtime.lastError; });
+    } catch (e) {
+      // Popup not open — safe to ignore
+    }
   });
 }
