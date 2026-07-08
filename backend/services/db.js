@@ -53,6 +53,11 @@ async function initDb() {
       } catch (err) {
         // Safe to ignore if column already exists
       }
+      try {
+        await libsqlClient.execute(`ALTER TABLE jobs ADD COLUMN payload TEXT`);
+      } catch (err) {
+        // Safe to ignore if column already exists
+      }
       await libsqlClient.execute(`
         CREATE TABLE IF NOT EXISTS sessions (
           key TEXT PRIMARY KEY,

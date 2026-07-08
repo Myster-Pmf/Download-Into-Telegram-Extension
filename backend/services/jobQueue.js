@@ -32,7 +32,19 @@ function cleanupJobFolder(jobId) {
 
 async function getReadyUploadCount() {
   const jobs = await db.getJobsByStatus('downloaded');
-  return jobs.length;
+  let count = 0;
+  for (const job of jobs) {
+    if (job.filepath && fs.existsSync(job.filepath)) {
+      count++;
+    } else {
+      console.warn(`[Queue] File for job ${job.id} is missing from disk: ${job.filepath}. Marking job as error.`);
+      await db.updateJob(job.id, {
+        status: 'error',
+        error: 'Downloaded file is missing from disk. Please restart the download.'
+      });
+    }
+  }
+  return count;
 }
 
 function getFileSize(filepath) {

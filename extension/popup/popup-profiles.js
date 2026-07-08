@@ -1,46 +1,158 @@
 // VideoGrab - popup-profiles.js
 // Site profile CRUD, rendering, and modal interactions
 
-function renderProfiles() {
-  const list = elements.customProfilesList;
-  if (!list) return;
-  list.innerHTML = '';
 
-  if (siteProfiles.length === 0) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">🔧</div>
-        <p>No site profiles yet.<br>Create one to customize cookies &amp; headers per domain.</p>
-      </div>`;
-    return;
+
+  // --- Cookie status updater ---
+  const updateCookieStatus = async () => {
+    const statusDiv = card.querySelector('#cs-cookie-status');
+    const textarea  = card.querySelector('#cs-cookies-textarea');
+    let cookiesText = '';
+
+    if (hasMatch && matchedProfile.cookiesText) {
+      // Profile has saved cookies — use those
+      cookiesText = matchedProfile.cookiesText;
+    } else {
+      // Use live browser cookies for this domain
+      cookiesText = await extractBrowserCookiesForDomain(domain);
+    }
+
+    if (textarea) textarea.value = cookiesText;
+
+    const count = countCookies(cookiesText);
+    if (statusDiv) {
+      statusDiv.className = 'cookie-status-indicator ' + (count > 0 ? 'has-cookies' : 'no-cookies');
+      const txt = statusDiv.querySelector('.cookie-status-text');
+      if (txt) {
+        txt.innerText = count > 0
+          ? `${hasMatch && matchedProfile.cookiesText ? 'Profile' : 'Live'} — ${count} cookie${count !== 1 ? 's' : ''}`
+          : 'No cookies found for this domain';
+      }
+    }
+    return cookiesText;
+  };
+
+  await updateCookieStatus();
+
+  // --- Sync button ---
+  card.querySelector('#cs-sync-btn').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const textarea = card.querySelector('#cs-cookies-textarea');
+    const liveCookies = await extractBrowserCookiesForDomain(domain);
+    if (textarea) textarea.value = liveCookies;
+    // Refresh status with live
+    const statusDiv = card.querySelector('#cs-cookie-status');
+    const count = countCookies(liveCookies);
+    if (statusDiv) {
+      statusDiv.className = 'cookie-status-indicator ' + (count > 0 ? 'has-cookies' : 'no-cookies');
+      const txt = statusDiv.querySelector('.cookie-status-text');
+      if (txt) txt.innerText = count > 0 ? `Live — ${count} cookie${count !== 1 ? 's' : ''}` : 'No cookies found';
+    }
+    showToast('Browser cookies synced.', 'success');
+  });
+
+  // --- Edit toggle button ---
+  const editBtn = card.querySelector('#cs-edit-btn');
+  const editor  = card.querySelector('#cs-editor');
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = editor.style.display === 'block';
+    editor.style.display = isOpen ? 'none' : 'block';
+    editBtn.textContent = isOpen ? 'Edit' : 'Close';
+  });
+
+  // --- Export button ---
+  card.querySelector('#cs-export-btn').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const textarea = card.querySelector('#cs-cookies-textarea');
+    const cookiesText = textarea ? textarea.value.trim() : await extractBrowserCookiesForDomain(domain);
+    if (!cookiesText) {
+      showToast('No cookies to export.', 'warning');
+      return;
+    }
+    const blob = new Blob([cookiesText], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${domain}_cookies.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Exported cookies.txt', 'success');
+  });
+
+  // --- Detach profile button (if a profile is matched) ---
+  if (hasMatch) {
+    const detachBtn = card.querySelector('#cs-detach-btn');
+    if (detachBtn) {
+      detachBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await showDialog({
+          title: 'Remove Profile Match',
+          message: `This will delete the "${matchedProfile.name || 'Unnamed'}" profile so it no longer applies to ${domain}. Are you sure?`,
+          confirmText: 'Remove',
+          variant: 'danger'
+        });
+        if (!ok) return;
+        siteProfiles.splice(matchedIndex, 1);
+        chrome.storage.local.set({ siteProfiles }, () => {
+          renderProfiles();
+          showToast('Profile removed.', 'info');
+        });
+      });
+    }
   }
 
-  siteProfiles.forEach((profile, index) => {
-    const card = document.createElement('div');
-    card.className = 'profile-card';
-    card.innerHTML = `
-      <div class="profile-card-header">
-        <span class="profile-name">${escapeHtml(profile.name || 'Unnamed Profile')}</span>
-        <span class="profile-pattern">${escapeHtml(profile.domainPattern || '*')}</span>
-      </div>
-      <div class="profile-card-meta">
-        ${profile.cookiesText ? `<span class="profile-tag">🍪 ${countCookies(profile.cookiesText)} cookies</span>` : '<span class="profile-tag dim">Live cookies</span>'}
-        ${profile.userAgent  ? '<span class="profile-tag">🖥 Custom UA</span>'  : ''}
-        ${profile.origin     ? '<span class="profile-tag">🌐 Origin set</span>' : ''}
-      </div>
-      <div class="profile-card-actions">
-        <button class="btn-icon edit-profile-btn" data-index="${index}" title="Edit profile">✏️</button>
-        <button class="btn-icon delete-profile-btn" data-index="${index}" title="Delete profile">🗑️</button>
-      </div>`;
-    list.appendChild(card);
+  // --- Import file ---
+  card.querySelector('#cs-import-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const textarea = card.querySelector('#cs-cookies-textarea');
+      if (textarea) textarea.value = ev.target.result.trim();
+      showToast('Cookie file loaded. Click "Save as Profile" to apply.', 'info');
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   });
 
-  list.querySelectorAll('.edit-profile-btn').forEach(btn => {
-    btn.addEventListener('click', () => openProfileModal(Number(btn.dataset.index)));
-  });
+  // --- Save / Update button ---
+  card.querySelector('#cs-save-btn').addEventListener('click', () => {
+    const cookiesVal = (card.querySelector('#cs-cookies-textarea')?.value || '').trim();
+    const originVal  = (card.querySelector('#cs-origin-input')?.value  || '').trim();
+    const refererVal = (card.querySelector('#cs-referer-input')?.value || '').trim();
+    const uaVal      = (card.querySelector('#cs-ua-input')?.value      || '').trim();
 
-  list.querySelectorAll('.delete-profile-btn').forEach(btn => {
-    btn.addEventListener('click', () => deleteProfile(Number(btn.dataset.index)));
+    if (hasMatch) {
+      // Update existing matched profile
+      siteProfiles[matchedIndex] = {
+        ...matchedProfile,
+        cookiesText: cookiesVal,
+        origin:      originVal,
+        referer:     refererVal,
+        userAgent:   uaVal
+      };
+      chrome.storage.local.set({ siteProfiles }, () => {
+        renderProfiles();
+        showToast(`Profile "${matchedProfile.name || 'Unnamed'}" updated.`, 'success');
+      });
+    } else {
+      // Create a new profile override for this domain
+      const cleanPattern = domain.includes('.') ? `*.${domain}` : domain;
+      const newProfile = {
+        name:          `${domain} Profile`,
+        domainPattern: cleanPattern,
+        cookiesText:   cookiesVal,
+        origin:        originVal,
+        referer:       refererVal,
+        userAgent:     uaVal
+      };
+      siteProfiles.push(newProfile);
+      chrome.storage.local.set({ siteProfiles }, () => {
+        renderProfiles();
+        showToast(`Profile created for ${domain}.`, 'success');
+      });
+    }
   });
 }
 

@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Normalize: clear stale old default values that were saved by previous versions
   // Old default API key was 'my_secure_shared_secret_api_key' — reset to blank so new default applies
-  const OLD_DEFAULT_API_KEYS = ['my_secure_shared_secret_api_key', 'your_api_key_here', 'omnitrix2.0'];
+  const OLD_DEFAULT_API_KEYS = ['my_secure_shared_secret_api_key', 'your_api_key_here', 'omnitrix2.0', 'downloadIntoTelegrambyOmnitrix'];
   if (OLD_DEFAULT_API_KEYS.includes(activeSettings.apiKey)) {
     activeSettings.apiKey = '';
   }
@@ -101,6 +101,7 @@ function initTabNavigation() {
       if (panel) panel.classList.add('active');
 
       // Lazy-load tab content
+      if (targetTab === 'profiles') renderProfiles();
       if (targetTab === 'history') renderHistory();
       if (targetTab === 'telegram') checkTelegramLoginStatus();
     });

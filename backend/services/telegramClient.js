@@ -128,15 +128,20 @@ async function checkLoginStatus() {
   try {
     const client = await getClient();
     const loggedIn = await client.isUserAuthorized();
-    let username = null;
     if (loggedIn) {
       const me = await client.getMe();
-      username = me.username || me.firstName || 'User';
+      return {
+        loggedIn: true,
+        username:  me.username  || null,
+        firstName: me.firstName || null,
+        lastName:  me.lastName  || null,
+        phone:     me.phone     || null
+      };
     }
-    return { loggedIn, username };
+    return { loggedIn: false, username: null, firstName: null, lastName: null, phone: null };
   } catch (e) {
     console.error('[Telegram] Check status error:', e);
-    return { loggedIn: false, username: null };
+    return { loggedIn: false, username: null, firstName: null, lastName: null, phone: null };
   }
 }
 

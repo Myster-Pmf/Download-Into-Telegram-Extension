@@ -43,7 +43,11 @@ function loadPersistedData(callback) {
 
       // Restore persisted video list (all URLs, cross-tab — filtered in render)
       if (Array.isArray(result.detectedVideos)) {
-        detectedVideosList = result.detectedVideos;
+        detectedVideosList = result.detectedVideos.map(v => ({
+          ...v,
+          srcUrl: v.srcUrl || v.url || '',
+          url: v.url || v.srcUrl || ''
+        }));
       }
 
       if (callback) callback();

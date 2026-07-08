@@ -41,7 +41,7 @@ async function checkTelegramLoginStatus() {
       if (badge) badge.className = 'tg-badge online';
       if (badge) badge.textContent = '✓';
       if (text) {
-        const name = data.firstName ? `${data.firstName}${data.lastName ? ' ' + data.lastName : ''}` : 'Unknown';
+        const name = data.firstName ? `${data.firstName}${data.lastName ? ' ' + data.lastName : ''}` : (data.username || 'Unknown');
         const phone = data.phone ? ` · ${data.phone}` : '';
         text.textContent = `Logged in as ${name}${phone}`;
       }
@@ -54,8 +54,14 @@ async function checkTelegramLoginStatus() {
       if (badge) badge.textContent = '✗';
       if (text)  text.textContent  = 'Not logged in — use the form below to connect.';
       
-      // Wizard continuity: check stored auth state
-      if (tgAuthState === '2fa') {
+      // Wizard continuity: only reset to phone if we're not in a mid-auth flow
+      // Don't override OTP or 2FA steps — they may be mid-flow
+      if (tgAuthState === 'logged') {
+        // Was logged but now not — reset to phone
+        tgAuthState = 'phone';
+        chrome.storage.local.set({ tgAuthState });
+        showTgStep('authStepPhone');
+      } else if (tgAuthState === '2fa') {
         showTgStep('authStep2fa');
       } else if (tgAuthState === 'otp' || tgPhoneCodeHash) {
         showTgStep('authStepOtp');
@@ -76,7 +82,7 @@ async function checkTelegramLoginStatus() {
       }
     }
     
-    // Wizard continuity: check stored auth state on error too
+    // On error, preserve mid-auth states — don't reset to phone if user was mid-flow
     if (tgAuthState === '2fa') {
       showTgStep('authStep2fa');
     } else if (tgAuthState === 'otp' || tgPhoneCodeHash) {
@@ -149,25 +155,38 @@ async function verifyOtp() {
     // 2FA required (returned as a 200 OK status from the backend verifyOtp handler)
     if (data.status === '2fa_required' || data.need2fa) {
       if (elements.tg2faHint) {
-        elements.tg2faHint.textContent = data.hint ? `Hint: ${data.hint}` : 'No hint available';
+        elements.tg2faHint.textContent = data.hint ? `Hint: ${data.hint}` : '';
       }
       tgAuthState = '2fa';
       chrome.storage.local.set({ tgAuthState });
       showTgStep('authStep2fa');
-      showToast('Two-Factor Authentication (2FA) is required.', 'info');
+      showToast('Two-Factor Authentication required — enter your cloud password.', 'info');
       return;
     }
 
-    // Clear saved phoneCodeHash upon successful login
+    // OTP verified, session saved on backend — update local state directly
+    // (Don't rely on checkTelegramLoginStatus immediately; session propagation may have a delay)
     tgPhoneCodeHash = '';
     tgAuthState = 'logged';
+    telegramLoggedIn = true;
     chrome.storage.local.set({ tgAuthState });
     chrome.storage.local.remove('tgPhoneCodeHash');
 
+    // Update status card immediately without waiting for a server round-trip
+    const card  = elements.tgStatusCard;
+    const badge = elements.tgStatusBadge;
+    const text  = elements.tgStatusText;
+    if (card)  card.className  = 'tg-status-card logged-in';
+    if (badge) { badge.className = 'tg-badge online'; badge.textContent = '✓'; }
+    if (text)  text.textContent  = 'Logged in to Telegram!';
+    showTgStep('authStepLogged');
+
     showToast('Logged in to Telegram!', 'success');
-    await checkTelegramLoginStatus();
     // Auto-load chats after login
     await refreshChatList();
+
+    // Then do a status check to get real name/phone — update label if available
+    await checkTelegramLoginStatus();
   } catch (e) {
     showToast(`Verification failed: ${e.message}`, 'error');
   } finally {
@@ -193,15 +212,26 @@ async function verify2fa() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-    // Clear saved phoneCodeHash upon successful login
+    // 2FA verified — update local state directly
     tgPhoneCodeHash = '';
     tgAuthState = 'logged';
+    telegramLoggedIn = true;
     chrome.storage.local.set({ tgAuthState });
     chrome.storage.local.remove('tgPhoneCodeHash');
 
+    // Update status card immediately
+    const card  = elements.tgStatusCard;
+    const badge = elements.tgStatusBadge;
+    const text  = elements.tgStatusText;
+    if (card)  card.className  = 'tg-status-card logged-in';
+    if (badge) { badge.className = 'tg-badge online'; badge.textContent = '✓'; }
+    if (text)  text.textContent  = 'Logged in to Telegram!';
+    showTgStep('authStepLogged');
+
     showToast('2FA verified! Logged in.', 'success');
-    await checkTelegramLoginStatus();
     await refreshChatList();
+    // Then refresh to show real name
+    await checkTelegramLoginStatus();
   } catch (e) {
     showToast(`2FA failed: ${e.message}`, 'error');
   } finally {
