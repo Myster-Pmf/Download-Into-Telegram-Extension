@@ -42,15 +42,16 @@ async function renderProfiles() {
       </div>
     `;
     container.appendChild(card);
-    initCurrentSiteCardEvents(card, domain, hasMatch, matchedProfile, matchedIndex);
+    await initCurrentSiteCardEvents(card, domain, hasMatch, matchedProfile, matchedIndex);
   }
 
   // --- Saved profiles list ---
   if (siteProfiles.length === 0) {
-    container.innerHTML += `
-      <div class="empty-state" style="padding: 20px; border-style: solid;">
-        <p>No site-specific profiles configured. Add a profile below to target specific domains with custom cookies/headers.</p>
-      </div>`;
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.style.cssText = 'padding: 20px; border-style: solid;';
+    empty.innerHTML = `<p>No site-specific profiles configured. Add a profile below to target specific domains with custom cookies/headers.</p>`;
+    container.appendChild(empty);
     return;
   }
 
@@ -88,12 +89,14 @@ async function initCurrentSiteCardEvents(card, domain, hasMatch, matchedProfile,
     const textarea  = card.querySelector('#cs-cookies-textarea');
     let cookiesText = '';
 
-    if (hasMatch && matchedProfile.cookiesText) {
-      // Profile has saved cookies — use those
-      cookiesText = matchedProfile.cookiesText;
-    } else {
-      // Use live browser cookies for this domain
-      cookiesText = await extractBrowserCookiesForDomain(domain);
+    try {
+      if (hasMatch && matchedProfile.cookiesText) {
+        cookiesText = matchedProfile.cookiesText;
+      } else {
+        cookiesText = await extractBrowserCookiesForDomain(domain);
+      }
+    } catch (e) {
+      console.error('[Profiles] Cookie extraction failed:', e);
     }
 
     if (textarea) textarea.value = cookiesText;

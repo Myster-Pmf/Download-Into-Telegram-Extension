@@ -49,13 +49,35 @@ async function extractBrowserCookiesForDomain(domainPattern) {
   let domain = domainPattern.trim().toLowerCase();
   if (domain.startsWith('*.')) domain = domain.substring(2);
   
-  // Construct a secure URL to capture parent/wildcard domain cookies (e.g. .mediadelivery.net)
   const url = `https://${domain}/`;
   
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      console.warn('[Cookies] Timeout extracting cookies for', domainPattern);
+      done('');
+    }, 5000);
+
     try {
       chrome.cookies.getAll({ url }, (cookiesByUrl) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Cookies] getAll url error:', chrome.runtime.lastError.message);
+          done('');
+          return;
+        }
         chrome.cookies.getAll({ domain }, (cookiesByDomain) => {
+          if (chrome.runtime.lastError) {
+            console.error('[Cookies] getAll domain error:', chrome.runtime.lastError.message);
+            done(buildNetscapeCookies(cookiesByUrl || [], domainPattern));
+            return;
+          }
           const allCookies = [...(cookiesByUrl || [])];
           (cookiesByDomain || []).forEach(c => {
             const exists = allCookies.some(existing => 
@@ -63,16 +85,14 @@ async function extractBrowserCookiesForDomain(domainPattern) {
               existing.domain === c.domain && 
               existing.path === c.path
             );
-            if (!exists) {
-              allCookies.push(c);
-            }
+            if (!exists) allCookies.push(c);
           });
-          resolve(buildNetscapeCookies(allCookies, domainPattern));
+          done(buildNetscapeCookies(allCookies, domainPattern));
         });
       });
     } catch (e) {
       console.error('[Cookies] extractBrowserCookiesForDomain error:', e);
-      resolve('');
+      done('');
     }
   });
 }
