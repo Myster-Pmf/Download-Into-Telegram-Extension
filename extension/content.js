@@ -6,7 +6,7 @@
 
   const reported = new Set();
 
-  function reportVideo(srcUrl) {
+  function reportVideo(srcUrl, width, height, duration) {
     if (!srcUrl || srcUrl.startsWith('blob:') || srcUrl.startsWith('data:')) return;
     if (reported.has(srcUrl)) return;
     reported.add(srcUrl);
@@ -14,21 +14,25 @@
       chrome.runtime.sendMessage({
         type: 'VIDEO_DETECTED_FROM_CONTENT',
         srcUrl: srcUrl,
-        pageUrl: location.href
+        pageUrl: location.href,
+        width: width || null,
+        height: height || null,
+        duration: (duration && isFinite(duration)) ? Math.round(duration) : null
       }, () => { void chrome.runtime.lastError; });
-    } catch (e) {
-      // Extension context invalidated — ignore
-    }
+    } catch (e) {}
   }
 
   function scanVideoElement(video) {
-    const src = video.src || video.currentSrc || '';
-    if (src) reportVideo(src);
+    const w = video.videoWidth || video.width || 0;
+    const h = video.videoHeight || video.height || 0;
+    const d = video.duration || 0;
 
-    // Also check <source> children
+    const src = video.src || video.currentSrc || '';
+    if (src) reportVideo(src, w, h, d);
+
     const sources = video.querySelectorAll('source');
     sources.forEach(s => {
-      if (s.src) reportVideo(s.src);
+      if (s.src) reportVideo(s.src, w, h, d);
     });
   }
 
@@ -64,4 +68,9 @@
     attributes: true,
     attributeFilter: ['src']
   });
+
+  // Also re-scan when metadata loads (resolution/duration become available)
+  document.addEventListener('loadedmetadata', (e) => {
+    if (e.target.nodeName === 'VIDEO') scanVideoElement(e.target);
+  }, true);
 })();

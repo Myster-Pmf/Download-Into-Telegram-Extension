@@ -26,7 +26,7 @@ function renderVideos() {
 
   const scopeEl  = elements.scopeTabCheckbox;
   const tabScope = scopeEl ? scopeEl.checked : true;
-  const videos   = tabScope ? getVideosForCurrentTab() : detectedVideosList;
+  let videos     = tabScope ? getVideosForCurrentTab() : detectedVideosList;
 
   if (videos.length === 0) {
     list.innerHTML = `
@@ -39,6 +39,13 @@ function renderVideos() {
     return;
   }
 
+  // Sort by resolution (height) descending, then by filesize descending
+  videos = [...videos].sort((a, b) => {
+    const ha = a.height || 0, hb = b.height || 0;
+    if (hb !== ha) return hb - ha;
+    return (b.filesize || 0) - (a.filesize || 0);
+  });
+
   videos.forEach((video) => renderVideoCard(video, list));
 }
 
@@ -50,6 +57,7 @@ function renderVideoCard(video, container) {
   const title    = video.title || video.filename || extractFilename(video.srcUrl) || 'Unknown Video';
   const size     = video.filesize ? formatBytes(video.filesize) : '';
   const duration = video.duration ? formatDuration(video.duration) : '';
+  const res      = (video.width && video.height) ? `${video.width}×${video.height}` : '';
   const domain   = getDomain(video.pageUrl || '');
   const thumb    = video.thumbnail || null;
 
@@ -64,6 +72,7 @@ function renderVideoCard(video, container) {
         <div class="video-title" title="${escapeHtml(title)}">${escapeHtml(truncateStr(title, 60))}</div>
         <div class="video-meta">
           ${domain     ? `<span class="meta-chip">🌐 ${escapeHtml(domain)}</span>` : ''}
+          ${res        ? `<span class="meta-chip">📐 ${res}</span>` : ''}
           ${size       ? `<span class="meta-chip">💾 ${size}</span>` : '<span class="meta-chip size-loading" data-src="${escapeHtml(video.srcUrl)}">💾 …</span>'}
           ${duration   ? `<span class="meta-chip">⏱ ${duration}</span>` : ''}
         </div>
@@ -457,44 +466,51 @@ function initVideoDetectionListener() {
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type !== 'VIDEO_DETECTED') return;
 
-    const { srcUrl, pageUrl, title, filename, filesize, duration, thumbnail, mimeType } = message;
+    const { srcUrl, pageUrl, title, filename, filesize, duration, thumbnail, mimeType, width, height } = message;
     if (!srcUrl) return;
 
-    // Deduplicate by srcUrl
-    if (detectedVideosList.some(v => v.srcUrl === srcUrl)) return;
+    // Update existing entry or create new one
+    const existingIdx = detectedVideosList.findIndex(v => v.srcUrl === srcUrl);
+    if (existingIdx !== -1) {
+      const existing = detectedVideosList[existingIdx];
+      if (width) existing.width = width;
+      if (height) existing.height = height;
+      if (duration) existing.duration = duration;
+      if (filesize) existing.filesize = filesize;
+    } else {
+      const video = {
+        id:        srcUrl,
+        srcUrl,
+        pageUrl,
+        title:     title    || filename || extractFilename(srcUrl),
+        filename:  filename || extractFilename(srcUrl),
+        filesize:  filesize || null,
+        duration:  duration || null,
+        width:     width    || null,
+        height:    height   || null,
+        thumbnail: thumbnail || null,
+        mimeType:  mimeType  || ''
+      };
 
-    const video = {
-      id:        srcUrl, // use srcUrl as stable ID
-      srcUrl,
-      pageUrl,
-      title:     title    || filename || extractFilename(srcUrl),
-      filename:  filename || extractFilename(srcUrl),
-      filesize:  filesize || null,
-      duration:  duration || null,
-      thumbnail: thumbnail || null,
-      mimeType:  mimeType  || ''
-    };
+      detectedVideosList.unshift(video);
 
-    detectedVideosList.unshift(video);
+      if (detectedVideosList.length > 200) detectedVideosList.length = 200;
 
-    // Persist updated list (cap at 200 entries)
-    if (detectedVideosList.length > 200) detectedVideosList.length = 200;
-    chrome.storage.local.set({ detectedVideos: detectedVideosList });
-
-    // If size unknown, try HEAD fetch to auto-populate
-    if (!video.filesize) {
-      fetchVideoMeta(video).then(() => {
-        // Re-render if popup still open
-        const tabScope = elements.scopeTabCheckbox ? elements.scopeTabCheckbox.checked : true;
-        const videos   = tabScope ? getVideosForCurrentTab() : detectedVideosList;
-        if (videos.includes(video)) renderVideos();
-      });
+      // If size unknown, try HEAD fetch to auto-populate
+      if (!video.filesize) {
+        fetchVideoMeta(video).then(() => {
+          const tabScope = elements.scopeTabCheckbox ? elements.scopeTabCheckbox.checked : true;
+          const videos   = tabScope ? getVideosForCurrentTab() : detectedVideosList;
+          if (videos.includes(video)) renderVideos();
+        });
+      }
     }
 
-    // Only re-render if this video belongs to the active tab
+    chrome.storage.local.set({ detectedVideos: detectedVideosList });
+
     const scopeEl = elements.scopeTabCheckbox;
     const tabScope = scopeEl ? scopeEl.checked : true;
-    if (!tabScope || getVideoPageUrl(video) === activeTabExactUrl) {
+    if (!tabScope || getVideoPageUrl({ pageUrl }) === activeTabExactUrl) {
       renderVideos();
     }
   });
