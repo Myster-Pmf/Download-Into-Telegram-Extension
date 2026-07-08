@@ -1,8 +1,87 @@
 // VideoGrab - popup-profiles.js
 // Site profile CRUD, rendering, and modal interactions
 
+/** Render the profiles tab: current-site card + saved profiles list */
+async function renderProfiles() {
+  const container = elements.customProfilesList;
+  if (!container) return;
+  container.innerHTML = '';
 
+  // --- Current site card ---
+  const domain = activeTabUrl ? getDomain(activeTabUrl) : '';
+  if (domain) {
+    const matchedProfile = matchProfileForUrl(activeTabUrl);
+    const matchedIndex   = matchedProfile ? siteProfiles.indexOf(matchedProfile) : -1;
+    const hasMatch       = matchedIndex !== -1;
 
+    const card = document.createElement('div');
+    card.className = 'profile-card current-site-card';
+    card.innerHTML = `
+      <div class="profile-card-header">
+        <span class="profile-name">🌐 Current: ${escapeHtml(domain)}</span>
+        ${hasMatch ? '<span class="profile-badge">Profile Active</span>' : '<span class="profile-badge badge-auto">Auto</span>'}
+      </div>
+      <div class="profile-card-body">
+        <div id="cs-cookie-status" class="cookie-status-indicator">
+          <span class="cookie-status-text">Checking…</span>
+        </div>
+        <textarea id="cs-cookies-textarea" rows="3" placeholder="Cookie string (Netscape format)" readonly></textarea>
+        <div class="cs-btn-row">
+          <button type="button" id="cs-sync-btn" class="btn btn-sm">Sync Live</button>
+          <button type="button" id="cs-edit-btn" class="btn btn-sm">Edit</button>
+          <button type="button" id="cs-export-btn" class="btn btn-sm">Export</button>
+          ${hasMatch ? '<button type="button" id="cs-detach-btn" class="btn btn-sm btn-danger">Detach</button>' : ''}
+        </div>
+        <div id="cs-editor" style="display:none; margin-top:8px;">
+          <input type="text" id="cs-origin-input" placeholder="Origin override" class="input-sm" />
+          <input type="text" id="cs-referer-input" placeholder="Referer override" class="input-sm" />
+          <input type="text" id="cs-ua-input" placeholder="User-Agent override" class="input-sm" />
+          <input type="file" id="cs-import-file" accept=".txt" style="font-size:11px; margin-top:4px;" />
+          <button type="button" id="cs-save-btn" class="btn btn-sm btn-primary" style="margin-top:4px;">Save as Profile</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+    initCurrentSiteCardEvents(card, domain, hasMatch, matchedProfile, matchedIndex);
+  }
+
+  // --- Saved profiles list ---
+  if (siteProfiles.length === 0) {
+    container.innerHTML += `
+      <div class="empty-state" style="padding: 20px; border-style: solid;">
+        <p>No site-specific profiles configured. Add a profile below to target specific domains with custom cookies/headers.</p>
+      </div>`;
+    return;
+  }
+
+  siteProfiles.forEach((profile, idx) => {
+    const pCard = document.createElement('div');
+    pCard.className = 'profile-card';
+    const cookieSize = profile.cookiesText ? Math.round(profile.cookiesText.length / 1024) : 0;
+    pCard.innerHTML = `
+      <div class="profile-card-header">
+        <span class="profile-name">${escapeHtml(profile.name || 'Unnamed')}</span>
+        <div class="profile-card-actions">
+          <button class="btn-link edit-prof-btn" data-idx="${idx}">Edit</button>
+          <button class="btn-link btn-danger-link delete-prof-btn" data-idx="${idx}">Delete</button>
+        </div>
+      </div>
+      <div class="profile-card-body" style="font-size: 12px; line-height: 1.6;">
+        <div><strong>Pattern:</strong> <code>${escapeHtml(profile.domainPattern)}</code></div>
+        <div><strong>Cookies:</strong> ${cookieSize > 0 ? `Imported (${cookieSize} KB)` : 'None'}</div>
+        ${profile.origin ? `<div><strong>Origin:</strong> <code>${escapeHtml(profile.origin)}</code></div>` : ''}
+        ${profile.referer ? `<div><strong>Referer:</strong> <code>${escapeHtml(profile.referer)}</code></div>` : ''}
+        ${profile.userAgent ? `<div style="text-overflow: ellipsis; white-space: nowrap; overflow: hidden; max-width: 450px;"><strong>UA:</strong> <small>${escapeHtml(profile.userAgent)}</small></div>` : ''}
+      </div>
+    `;
+    pCard.querySelector('.edit-prof-btn').addEventListener('click', () => openProfileModal(idx));
+    pCard.querySelector('.delete-prof-btn').addEventListener('click', () => deleteProfile(idx));
+    container.appendChild(pCard);
+  });
+}
+
+/** Set up event listeners for the current-site cookie card */
+async function initCurrentSiteCardEvents(card, domain, hasMatch, matchedProfile, matchedIndex) {
   // --- Cookie status updater ---
   const updateCookieStatus = async () => {
     const statusDiv = card.querySelector('#cs-cookie-status');
